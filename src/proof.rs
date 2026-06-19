@@ -128,6 +128,29 @@ impl core::fmt::Display for ProofError {
 
 impl std::error::Error for ProofError {}
 
+/// Verify that `raw_tx` is Merkle-included under `header_bytes` (wallet walk steps 1–2).
+///
+/// Returns the recomputed ZIP-244 txid. `link_index` is only used in [`ProofError`] payloads.
+pub fn verify_link_inclusion(
+    network: &impl Parameters,
+    link_index: usize,
+    height: u32,
+    raw_tx: &[u8],
+    header_bytes: &[u8],
+    merkle_branch: &[[u8; 32]],
+    merkle_index: u32,
+) -> Result<[u8; 32], ProofError> {
+    let header =
+        BlockHeader::read(header_bytes).map_err(|_| ProofError::HeaderParse(link_index))?;
+    let branch_id = BranchId::for_height(network, BlockHeight::from_u32(height));
+    let tx = Transaction::read(raw_tx, branch_id).map_err(|_| ProofError::TxParse(link_index))?;
+    let txid: [u8; 32] = *tx.txid().as_ref();
+    if merkle_fold(txid, merkle_branch, merkle_index) != header.merkle_root {
+        return Err(ProofError::MerkleMismatch(link_index));
+    }
+    Ok(txid)
+}
+
 /// Verify a name's proof chain, genesis → tip.
 ///
 /// `(g_d, pk_d)` and `value` are the registry's published spec constants
@@ -152,17 +175,20 @@ pub fn verify_chain(
         // §5 fold rule: which prev_rcm this link must extend.
         let prev_rcm = prev_rcm_for(tip.as_ref(), link.action).ok_or(ProofError::ChainBreak(i))?;
 
-        // Chain context: header, tx (parsing recomputes the ZIP-244 txid),
-        // and the Merkle branch joining them.
+        let _txid = verify_link_inclusion(
+            network,
+            i,
+            link.height,
+            &link.tx,
+            &link.header,
+            &link.merkle_branch,
+            link.merkle_index,
+        )?;
         let header =
             BlockHeader::read(&link.header[..]).map_err(|_| ProofError::HeaderParse(i))?;
         let branch_id = BranchId::for_height(network, BlockHeight::from_u32(link.height));
         let tx =
             Transaction::read(&link.tx[..], branch_id).map_err(|_| ProofError::TxParse(i))?;
-        let txid: [u8; 32] = *tx.txid().as_ref();
-        if merkle_fold(txid, &link.merkle_branch, link.merkle_index) != header.merkle_root {
-            return Err(ProofError::MerkleMismatch(i));
-        }
 
         // The Name Note's action: its nf is the output note's ρ (the circuit
         // constrains ρ_new = nf_old within an action), its cmx the commitment.
@@ -193,6 +219,32 @@ pub fn verify_chain(
         ua: (last.action != Action::Release).then(|| last.ua.clone()),
         anchors,
     })
+}
+
+/// Merkle siblings for `leaf = txids[index]` such that
+/// `merkle_fold(leaf, &branch, index as u32)` reaches the block tx Merkle root.
+pub fn merkle_branch(txids: &[[u8; 32]], index: usize) -> Vec<[u8; 32]> {
+    assert!(index < txids.len(), "leaf index in range");
+    let mut level: Vec<[u8; 32]> = txids.to_vec();
+    let mut idx = index;
+    let mut branch = Vec::new();
+    while level.len() > 1 {
+        if level.len() % 2 == 1 {
+            level.push(*level.last().expect("non-empty"));
+        }
+        let sibling = if idx % 2 == 1 {
+            level[idx - 1]
+        } else {
+            level[idx + 1]
+        };
+        branch.push(sibling);
+        level = level
+            .chunks_exact(2)
+            .map(|pair| sha256d(&pair[0], &pair[1]))
+            .collect();
+        idx /= 2;
+    }
+    branch
 }
 
 /// Fold a txid up a Merkle branch (Bitcoin-style double-SHA256 pairs;
@@ -232,6 +284,9 @@ mod tests {
         let root = sha256d(&a, &b);
         assert_eq!(merkle_fold(a, &[b], 0), root);
         assert_eq!(merkle_fold(b, &[a], 1), root);
+        assert_ne!(merkle_branch(&[a, b], 0), merkle_branch(&[a, b], 1));
+        assert_eq!(merkle_fold(a, &merkle_branch(&[a, b], 0), 0), root);
+        assert_eq!(merkle_fold(b, &merkle_branch(&[a, b], 1), 1), root);
         // Wrong orientation must not.
         assert_ne!(merkle_fold(b, &[a], 0), root);
     }

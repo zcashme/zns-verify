@@ -63,4 +63,18 @@ mod tests {
         assert_eq!(prev_rcm_for(Some(&released), Action::Update), None);
         assert_eq!(prev_rcm_for(Some(&released), Action::Release), None);
     }
+
+    #[test]
+    fn update_extends_update_tip() {
+        let after_update = tip(Action::Update, [0xabu8; 32]);
+        assert_eq!(
+            prev_rcm_for(Some(&after_update), Action::Update),
+            Some([0xabu8; 32])
+        );
+        assert_eq!(
+            prev_rcm_for(Some(&after_update), Action::Release),
+            Some([0xabu8; 32])
+        );
+        assert_eq!(prev_rcm_for(Some(&after_update), Action::Claim), None);
+    }
 }

@@ -93,8 +93,6 @@ pub enum MemoError {
     FieldCount,
     /// The name violates the DNS-label rule.
     InvalidName,
-    /// `ua` is not a unified address for this network, or has no Orchard receiver.
-    InvalidUa,
     /// A required argument (`ua` or `nonce`) is empty.
     EmptyArg,
     /// `prev_rcm` is not exactly 64 lowercase hex chars.
@@ -176,39 +174,6 @@ fn decode_prev_rcm(s: &str) -> Result<[u8; 32], MemoError> {
         out[i] = (nibble(pair[0])? << 4) | nibble(pair[1])?;
     }
     Ok(out)
-}
-
-/// Decode `ua` as a unified address for `network` and require an Orchard receiver.
-///
-/// RELEASE memos use an empty `ua`; callers should skip validation in that case.
-#[cfg(feature = "address")]
-pub fn validate_orchard_ua<P: zcash_protocol::consensus::Parameters>(
-    network: &P,
-    ua: &str,
-) -> Result<(), MemoError> {
-    use zcash_keys::address::UnifiedAddress;
-    use zcash_keys::encoding::AddressCodec;
-
-    let decoded = UnifiedAddress::decode(network, ua).map_err(|_| MemoError::InvalidUa)?;
-    if decoded.orchard().is_none() {
-        return Err(MemoError::InvalidUa);
-    }
-    Ok(())
-}
-
-/// Parse a ZNS memo and reject lifecycle `ua` fields that fail [`validate_orchard_ua`].
-#[cfg(feature = "address")]
-pub fn parse_memo_validated<'a, P: zcash_protocol::consensus::Parameters>(
-    raw: &'a [u8],
-    network: &P,
-) -> Result<ParsedMemo<'a>, MemoError> {
-    let parsed = parse_memo(raw)?;
-    if let ParsedMemo::Lifecycle { ua, .. } = parsed {
-        if !ua.is_empty() {
-            validate_orchard_ua(network, ua)?;
-        }
-    }
-    Ok(parsed)
 }
 
 /// Validate a ZNS name: 1–[`MAX_NAME_LEN`] bytes of `a-z 0-9 -`, with no
@@ -455,32 +420,5 @@ mod tests {
         // A ua that cannot fit the ZIP-302 memo.
         let huge = "u".repeat(MEMO_SIZE);
         assert_eq!(encode_request(Action::Claim, "alice", &huge), Err(MemoError::TooLong));
-    }
-
-    #[cfg(feature = "address")]
-    mod orchard_ua {
-        use super::*;
-        use zcash_protocol::consensus::Network;
-
-        #[test]
-        fn validate_rejects_garbage_and_placeholder() {
-            assert_eq!(
-                validate_orchard_ua(&Network::TestNetwork, "not-a-ua"),
-                Err(MemoError::InvalidUa)
-            );
-            assert_eq!(
-                validate_orchard_ua(&Network::TestNetwork, "u1xxx"),
-                Err(MemoError::InvalidUa)
-            );
-        }
-
-        #[test]
-        fn parse_memo_validated_rejects_invalid_ua() {
-            let m = encode_request(Action::Claim, "alice", "u1xxx").unwrap();
-            assert_eq!(
-                parse_memo_validated(&m, &Network::TestNetwork),
-                Err(MemoError::InvalidUa)
-            );
-        }
     }
 }

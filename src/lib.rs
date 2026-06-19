@@ -3,8 +3,7 @@
     all(
         not(test),
         not(feature = "decrypt"),
-        not(feature = "proof"),
-        not(feature = "address")
+        not(feature = "proof")
     ),
     no_std
 )]
@@ -30,6 +29,4 @@ pub use chain::{prev_rcm_for, Tip};
 pub use commit::note_commitment_cmx;
 pub use hash::{zns_psi_rcm, ZERO_PREV_RCM, ZNS_DOMAIN_TAG};
 pub use memo::{parse_memo, ParsedMemo, MEMO_SIZE};
-#[cfg(feature = "address")]
-pub use memo::{parse_memo_validated, validate_orchard_ua};
 pub use verify::verify_name_note;

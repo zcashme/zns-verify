@@ -89,4 +89,16 @@ mod tests {
         assert_ne!(a.0, b.0);
         assert_ne!(a.1, b.1);
     }
+
+    #[test]
+    fn prev_rcm_and_action_change_output() {
+        let base = zns_psi_rcm(b"claim", b"alice", b"u1xxx", &[0u8; 32]);
+        let other_prev = zns_psi_rcm(b"claim", b"alice", b"u1xxx", &[1u8; 32]);
+        assert_ne!(base.0, other_prev.0);
+        assert_ne!(base.1, other_prev.1);
+
+        let update = zns_psi_rcm(b"update", b"alice", b"u1xxx", &[0u8; 32]);
+        assert_ne!(base.0, update.0);
+        assert_ne!(base.1, update.1);
+    }
 }

@@ -98,4 +98,24 @@ mod tests {
             b"claim", b"bob", b"u1xxx", &[0u8; 32], G_D, PK_D, 0, rho(), pinned_cmx()
         ));
     }
+
+    #[test]
+    fn rejects_tampered_action_and_prev_rcm() {
+        assert!(!verify_name_note(
+            b"update", b"alice", b"u1xxx", &[0u8; 32], G_D, PK_D, 0, rho(), pinned_cmx()
+        ));
+        assert!(!verify_name_note(
+            b"claim", b"alice", b"u1xxx", &[1u8; 32], G_D, PK_D, 0, rho(), pinned_cmx()
+        ));
+    }
+
+    #[test]
+    fn rejects_wrong_expected_cmx() {
+        let mut wrong = pinned_cmx().to_repr();
+        wrong[0] ^= 1;
+        let wrong_cmx = pallas::Base::from_repr(wrong).unwrap();
+        assert!(!verify_name_note(
+            b"claim", b"alice", b"u1xxx", &[0u8; 32], G_D, PK_D, 0, rho(), wrong_cmx
+        ));
+    }
 }
