@@ -1,10 +1,4 @@
 //! Cross-language test vectors for the `zns_psi_rcm` hash construction.
-//!
-//! These are the canonical (input, expected-output) pairs that any
-//! implementation of the ZcashName binding — in any language — must
-//! reproduce byte-for-byte. New vectors are appended; existing vectors
-//! never change (changing one would mean the spec changed, which is a
-//! domain-tag bump).
 
 use pasta_curves::group::ff::PrimeField;
 use zns_verify::{note_commitment_cmx, zns_psi_rcm};
@@ -81,6 +75,26 @@ fn commit_matches() {
         hex::encode(cmx.to_repr()),
         "53accd0df1c569731e8ad4fc8bcb483b953e3713ecc7a95202442daa026c4a02",
         "cmx for fixed test inputs",
+    );
+}
+
+/// Additional cmx pin using the release vector inputs. Exercises the
+/// "release" action bytes + explicit empty ua through the full Sinsemilla
+/// construction (different from the primary claim-based commit_matches).
+#[test]
+fn commit_matches_release_vector() {
+    use pasta_curves::pallas;
+    let v = &VECTORS[2];
+    let (psi, rcm) = zns_psi_rcm(v.action, v.name, v.ua, &v.prev_rcm);
+    let g_d = [0x11u8; 32];
+    let pk_d = [0x22u8; 32];
+    let rho = pallas::Base::from_repr([0x33u8; 32]).unwrap();
+    let cmx = note_commitment_cmx(g_d, pk_d, 0, rho, psi, rcm)
+        .expect("release commit must land off identity");
+    assert_eq!(
+        hex::encode(cmx.to_repr()),
+        "eb8a35b09bba153273435546921ef84a48aeda7eae0969cd8c6c097ea7a0651e",
+        "cmx for release vector inputs",
     );
 }
 
