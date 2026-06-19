@@ -23,7 +23,7 @@ check the answer here.
 - `memo::parse_memo` / `memo::encode_*` — the canonical ZNS memo grammar.
   One strict parser shared by registry, resolver, and slash contract
   (`DESIGN.md §17`); agreement is by construction.
-- `chain::prev_rcm_for` — the per-name transition rule (`DESIGN.md §5`):
+- `memo::prev_rcm_for` — the per-name transition rule (`DESIGN.md §5`):
   which `prev_rcm` an action must extend, given the name's tip.
 
 This kernel is the protocol's shared core — the crypto plus the two pure

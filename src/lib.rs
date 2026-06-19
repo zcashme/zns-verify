@@ -43,45 +43,7 @@ pub fn base_from_bytes(bytes: [u8; 32]) -> pallas::Base {
 /// the on-chain `cmx` value.
 pub use base_from_bytes as cmx_from_bytes;
 
-// -----------------------------------------------------------------------------
-// Compatibility shims for the previous inlined-module structure.
-//
-// Before the refactor the crate exposed:
-//   zns_verify::action, ::chain, ::commit, ::hash, ::memo, ::verify
-//
-// Callers that used the nested paths (rare, but possible) continue to work.
-// New code is encouraged to use the root re-exports or the three canonical
-// modules (`memo`, `commitment`, `verify`).
-// -----------------------------------------------------------------------------
-
-/// Compatibility shim. New code should use [`crate::Action`] or [`crate::memo`].
-pub mod action {
-    pub use crate::memo::Action;
-}
-
-/// Compatibility shim. New code should use [`crate::prev_rcm_for`], [`crate::Tip`],
-/// or [`crate::memo`].
-pub mod chain {
-    pub use crate::memo::{prev_rcm_for, Tip};
-}
-
-/// Compatibility shim. New code should use [`crate::note_commitment_cmx`] or
-/// [`crate::commitment`].
-pub mod commit {
-    pub use crate::commitment::note_commitment_cmx;
-}
-
-/// Compatibility shim. New code should use [`crate::zns_psi_rcm`],
-/// [`crate::ZNS_DOMAIN_TAG`], [`crate::ZERO_PREV_RCM`], or [`crate::commitment`].
-pub mod hash {
-    pub use crate::commitment::{zns_psi_rcm, ZNS_DOMAIN_TAG};
-    pub use crate::memo::ZERO_PREV_RCM;
-}
-
-// The `pub mod verify;` declaration above makes the old path
-// `zns_verify::verify::verify_name_note` continue to work without any extra shim.
-//
 // Re-export decrypt at the crate root when the feature is on, preserving the
-// previous path `zns_verify::decrypt::*`.
+// path `zns_verify::decrypt::*`.
 #[cfg(feature = "decrypt")]
 pub use verify::decrypt;
