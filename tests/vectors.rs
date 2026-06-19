@@ -98,6 +98,45 @@ fn commit_matches_release_vector() {
     );
 }
 
+/// Additional cmx pin using the update vector inputs. Exercises the
+/// "update" action bytes + non-zero prev_rcm through the full Sinsemilla
+/// construction (different from the claim and release commit_matches).
+#[test]
+fn commit_matches_update_vector() {
+    use pasta_curves::pallas;
+    let v = &VECTORS[1];
+    let (psi, rcm) = zns_psi_rcm(v.action, v.name, v.ua, &v.prev_rcm);
+    let g_d = [0x11u8; 32];
+    let pk_d = [0x22u8; 32];
+    let rho = pallas::Base::from_repr([0x33u8; 32]).unwrap();
+    let cmx = note_commitment_cmx(g_d, pk_d, 0, rho, psi, rcm)
+        .expect("update commit must land off identity");
+    assert_eq!(
+        hex::encode(cmx.to_repr()),
+        "36551a01f88a294b10d0c43be0fae6a32ba3a8bfdae67f9b6957deccd9e3ad09",
+        "cmx for update vector inputs",
+    );
+}
+
+/// Additional cmx pin using the longer name + ua vector inputs. Exercises
+/// variable-length name and ua through the full Sinsemilla construction.
+#[test]
+fn commit_matches_long_vector() {
+    use pasta_curves::pallas;
+    let v = &VECTORS[3];
+    let (psi, rcm) = zns_psi_rcm(v.action, v.name, v.ua, &v.prev_rcm);
+    let g_d = [0x11u8; 32];
+    let pk_d = [0x22u8; 32];
+    let rho = pallas::Base::from_repr([0x33u8; 32]).unwrap();
+    let cmx = note_commitment_cmx(g_d, pk_d, 0, rho, psi, rcm)
+        .expect("long commit must land off identity");
+    assert_eq!(
+        hex::encode(cmx.to_repr()),
+        "e00719b32f7727f920bddd4f10b3c851c1ba678926cbfe2b768de9751a88eb28",
+        "cmx for long vector inputs",
+    );
+}
+
 #[test]
 fn vectors_match() {
     for v in VECTORS {
