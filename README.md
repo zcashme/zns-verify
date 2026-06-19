@@ -39,14 +39,7 @@ Production dependencies: `blake2b_simd`, `pasta_curves`, `sinsemilla`,
 ## Usage
 
 ```rust
-use group::ff::PrimeField;
-use pasta_curves::pallas;
-use zns_verify::{parse_name_note_memo, verify_name_note, NameAction};
-
-// For verifying a Name Note that was actually committed on chain,
-// parse directly to the inputs it claims were used.
-let NameAction { action, name, ua, prev_rcm } =
-    parse_name_note_memo(b"ZNS:claim:alice:u1xxx:0000000000000000000000000000000000000000000000000000000000000000")?;
+use zns_verify::{parse_claim_memo, parse_name_note_memo, verify_name_note, ZERO_PREV_RCM, pallas, PrimeField};
 
 # let (g_d, pk_d) = ([0x11u8; 32], [0x22u8; 32]);
 # let rho = pallas::Base::from_repr([0x33u8; 32]).unwrap();
@@ -58,13 +51,20 @@ let NameAction { action, name, ua, prev_rcm } =
 # )
 # .unwrap();
 
-// Feed the pieces (you still control the source of each one) into the
-// explicit verification function.
+// Claim request memo (user → registry)
+let (action, name, ua) = parse_claim_memo(b"ZNS:claim:alice:u1xxx")?;
+let ok = verify_name_note(
+    action, name, ua, &ZERO_PREV_RCM,
+    g_d, pk_d, 0, rho, on_chain_cmx,
+);
+
+// Name Note memo (from on chain)
+let (action, name, ua, prev_rcm) =
+    parse_name_note_memo(b"ZNS:claim:alice:u1xxx:0000000000000000000000000000000000000000000000000000000000000000")?;
 let ok = verify_name_note(
     action, name, ua, &prev_rcm,
-    g_d, pk_d, 0, rho,
-    on_chain_cmx,
+    g_d, pk_d, 0, rho, on_chain_cmx,
 );
-assert!(ok);
+
 # Ok::<(), zns_verify::memo::MemoError>(())
 ```

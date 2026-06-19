@@ -360,30 +360,6 @@ pub const MEMO_SIZE: usize = 512;
 /// Maximum name length in bytes (the DNS label bound).
 pub const MAX_NAME_LEN: usize = 63;
 
-/// The action + name + UA + prev_rcm extracted from a *Name Note*'s memo.
-///
-/// These are exactly the four values that get fed to `zns_psi_rcm` to derive
-/// (ψ, rcm) for that note.
-///
-/// This is only returned for the committed "Name Note" form of a lifecycle
-/// memo (the version that includes the `prev_rcm` field). Request memos
-/// (no prev_rcm) and Challenge/Confirm memos produce `None`.
-///
-/// It is deliberately a plain public-field struct. The caller is still
-/// expected to decide the provenance of each field before passing them
-/// into `verify_name_note`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct NameAction<'a> {
-    /// The action bytes (e.g. `b"claim"`, `b"update"`, or `b"release"`).
-    pub action: &'a [u8],
-    /// The name the action applies to.
-    pub name: &'a [u8],
-    /// The user agent (or empty for release).
-    pub ua: &'a [u8],
-    /// The previous rcm value from the Name Note memo (the chain link witness).
-    pub prev_rcm: [u8; 32],
-}
-
 /// A parsed ZNS memo, borrowing from the input bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParsedMemo<'a> {
@@ -442,24 +418,41 @@ pub enum MemoError {
     TooLong,
 }
 
-/// Parse memo bytes that are expected to be a committed Name Note (the form
-/// with `prev_rcm`).
+/// Parse a committed Name Note memo and return the four values needed for
+/// verification: (action, name, ua, prev_rcm).
 ///
-/// This is the recommended entry point when your goal is verification.
-/// It returns a `NameAction` directly, without forcing you through the
-/// full `ParsedMemo` enum.
+/// This is the simplest entry point for the common case.
+/// You only need to import `parse_name_note_memo` and `verify_name_note`.
 ///
-/// Returns an error for request memos (no prev_rcm), non-lifecycle memos,
-/// or any invalid input.
-pub fn parse_name_note_memo(raw: &[u8]) -> Result<NameAction<'_>, MemoError> {
+/// Returns an error for request forms (no prev_rcm), non-lifecycle memos,
+/// or invalid input.
+pub fn parse_name_note_memo(raw: &[u8]) -> Result<(&[u8], &[u8], &[u8], [u8; 32]), MemoError> {
     match parse_memo(raw)? {
         ParsedMemo::Lifecycle { action, name, ua, prev_rcm: Some(prev_rcm) } => {
-            Ok(NameAction {
-                action: action.as_bytes(),
-                name: name.as_bytes(),
-                ua: ua.as_bytes(),
+            Ok((
+                action.as_bytes(),
+                name.as_bytes(),
+                ua.as_bytes(),
                 prev_rcm,
-            })
+            ))
+        }
+        _ => Err(MemoError::FieldCount),
+    }
+}
+
+/// Parse a claim request memo (user → registry form, e.g. "ZNS:claim:alice:u1xxx")
+/// and return the three values (action, name, ua).
+///
+/// Use this together with `ZERO_PREV_RCM` (for Claim on a fresh name)
+/// or a prev_rcm looked up from the name's chain state.
+pub fn parse_claim_memo(raw: &[u8]) -> Result<(&[u8], &[u8], &[u8]), MemoError> {
+    match parse_memo(raw)? {
+        ParsedMemo::Lifecycle { action, name, ua, prev_rcm: None } => {
+            Ok((
+                action.as_bytes(),
+                name.as_bytes(),
+                ua.as_bytes(),
+            ))
         }
         _ => Err(MemoError::FieldCount),
     }
@@ -1019,5 +1012,10 @@ pub use action::Action;
 pub use chain::{prev_rcm_for, Tip};
 pub use commit::note_commitment_cmx;
 pub use hash::{zns_psi_rcm, ZERO_PREV_RCM, ZNS_DOMAIN_TAG};
-pub use memo::{parse_memo, parse_name_note_memo, ParsedMemo, NameAction, MEMO_SIZE};
+pub use memo::{parse_memo, parse_name_note_memo, parse_claim_memo, ParsedMemo, MEMO_SIZE};
+
+// Re-export the curve and field types so users don't need direct dependencies
+// on `pasta_curves` and `group` just to construct `rho` and `cmx`.
+pub use group::ff::PrimeField;
+pub use pasta_curves::pallas;
 pub use verify::verify_name_note;
