@@ -20,11 +20,6 @@ decrypt = [
     "dep:chacha20",
     "dep:chacha20poly1305",
 ]
-# `proof` adds the wallet-side proof-bundle walk
-# parse a raw transaction + block header, fold the Merkle branch, and verify
-# the per-name rcm chain against on-chain commitments. Pulls zcash_primitives
-# and forces std; the verification core itself stays in the default kernel.
-proof = ["dep:zcash_primitives", "dep:zcash_protocol", "dep:sha2"]
 
 [dependencies]
 blake2b_simd = { version = "1", default-features = false }
@@ -46,10 +41,6 @@ zcash_note_encryption = { version = "0.4", optional = true }
 zcash_protocol = { version = "0.9", default-features = false, features = ["std"], optional = true }
 chacha20 = { version = "0.9", default-features = false, optional = true }
 chacha20poly1305 = { version = "0.10", default-features = false, optional = true }
-
-# ── `proof` (proof-bundle verification, optional) ────────────────────────────
-zcash_primitives = { version = "0.28", default-features = false, optional = true }
-sha2 = { version = "0.10", default-features = false, optional = true }
 
 [dev-dependencies]
 hex = "0.4"
