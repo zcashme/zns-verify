@@ -39,20 +39,26 @@ Production dependencies: `blake2b_simd`, `pasta_curves`, `sinsemilla`,
 ## Usage
 
 ```rust
-use zns_verify::{parse_claim_memo, parse_name_note_memo, verify_name_note, ZERO_PREV_RCM, pallas, PrimeField};
+use zns_verify::{
+    parse_claim_memo, parse_name_note_memo, parse_release_memo, parse_update_memo, verify_name_note,
+    ZERO_PREV_RCM,
+};
 
 # let (g_d, pk_d) = ([0x11u8; 32], [0x22u8; 32]);
-# let rho = pallas::Base::from_repr([0x33u8; 32]).unwrap();
-# let on_chain_cmx = pallas::Base::from_repr(
+# let rho = zns_verify::base_from_bytes([0x33u8; 32]);
+# let on_chain_cmx = zns_verify::cmx_from_bytes(
 #     <[u8; 32]>::try_from(
 #         hex::decode("53accd0df1c569731e8ad4fc8bcb483b953e3713ecc7a95202442daa026c4a02").unwrap(),
 #     )
 #     .unwrap(),
-# )
-# .unwrap();
+# );
 
 // Claim request memo (user → registry)
 let (action, name, ua) = parse_claim_memo(b"ZNS:claim:alice:u1xxx")?;
+
+// Similarly:
+let (action, name, ua) = parse_update_memo(b"ZNS:update:alice:u1new")?;
+let (action, name, ua) = parse_release_memo(b"ZNS:release:alice")?;
 let ok = verify_name_note(
     action, name, ua, &ZERO_PREV_RCM,
     g_d, pk_d, 0, rho, on_chain_cmx,
