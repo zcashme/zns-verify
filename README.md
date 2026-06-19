@@ -41,13 +41,14 @@ Production dependencies: `blake2b_simd`, `pasta_curves`, `sinsemilla`,
 ```rust
 use group::ff::PrimeField;
 use pasta_curves::pallas;
-use zns_verify::{parse_memo, verify_name_note, ParsedMemo};
+use zns_verify::{parse_name_note_memo, verify_name_note, NameAction};
 
-// Parse the claimed action from its canonical memo…
-let ParsedMemo::Lifecycle { action, name, ua, .. } = parse_memo(b"ZNS:claim:alice:u1xxx")?
-else { unreachable!() };
+// For verifying a Name Note that was actually committed on chain,
+// parse directly to the inputs it claims were used.
+let NameAction { action, name, ua, prev_rcm } =
+    parse_name_note_memo(b"ZNS:claim:alice:u1xxx:0000000000000000000000000000000000000000000000000000000000000000")?;
+
 # let (g_d, pk_d) = ([0x11u8; 32], [0x22u8; 32]);
-# let prev_rcm = zns_verify::ZERO_PREV_RCM;
 # let rho = pallas::Base::from_repr([0x33u8; 32]).unwrap();
 # let on_chain_cmx = pallas::Base::from_repr(
 #     <[u8; 32]>::try_from(
@@ -57,12 +58,10 @@ else { unreachable!() };
 # )
 # .unwrap();
 
-// …then recompute the binding's commitment and check it against the chain's cmx.
+// Feed the pieces (you still control the source of each one) into the
+// explicit verification function.
 let ok = verify_name_note(
-    action.as_bytes(),
-    name.as_bytes(),
-    ua.as_bytes(),
-    &prev_rcm,
+    action, name, ua, &prev_rcm,
     g_d, pk_d, 0, rho,
     on_chain_cmx,
 );

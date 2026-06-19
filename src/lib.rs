@@ -360,6 +360,30 @@ pub const MEMO_SIZE: usize = 512;
 /// Maximum name length in bytes (the DNS label bound).
 pub const MAX_NAME_LEN: usize = 63;
 
+/// The action + name + UA + prev_rcm extracted from a *Name Note*'s memo.
+///
+/// These are exactly the four values that get fed to `zns_psi_rcm` to derive
+/// (ψ, rcm) for that note.
+///
+/// This is only returned for the committed "Name Note" form of a lifecycle
+/// memo (the version that includes the `prev_rcm` field). Request memos
+/// (no prev_rcm) and Challenge/Confirm memos produce `None`.
+///
+/// It is deliberately a plain public-field struct. The caller is still
+/// expected to decide the provenance of each field before passing them
+/// into `verify_name_note`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NameAction<'a> {
+    /// The action bytes (e.g. `b"claim"`, `b"update"`, or `b"release"`).
+    pub action: &'a [u8],
+    /// The name the action applies to.
+    pub name: &'a [u8],
+    /// The user agent (or empty for release).
+    pub ua: &'a [u8],
+    /// The previous rcm value from the Name Note memo (the chain link witness).
+    pub prev_rcm: [u8; 32],
+}
+
 /// A parsed ZNS memo, borrowing from the input bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParsedMemo<'a> {
@@ -416,6 +440,29 @@ pub enum MemoError {
     InvalidPrevRcm,
     /// The encoded memo would exceed [`MEMO_SIZE`] bytes.
     TooLong,
+}
+
+/// Parse memo bytes that are expected to be a committed Name Note (the form
+/// with `prev_rcm`).
+///
+/// This is the recommended entry point when your goal is verification.
+/// It returns a `NameAction` directly, without forcing you through the
+/// full `ParsedMemo` enum.
+///
+/// Returns an error for request memos (no prev_rcm), non-lifecycle memos,
+/// or any invalid input.
+pub fn parse_name_note_memo(raw: &[u8]) -> Result<NameAction<'_>, MemoError> {
+    match parse_memo(raw)? {
+        ParsedMemo::Lifecycle { action, name, ua, prev_rcm: Some(prev_rcm) } => {
+            Ok(NameAction {
+                action: action.as_bytes(),
+                name: name.as_bytes(),
+                ua: ua.as_bytes(),
+                prev_rcm,
+            })
+        }
+        _ => Err(MemoError::FieldCount),
+    }
 }
 
 /// Parse raw memo bytes (zero-padded per ZIP-302) as a ZNS memo.
@@ -972,5 +1019,5 @@ pub use action::Action;
 pub use chain::{prev_rcm_for, Tip};
 pub use commit::note_commitment_cmx;
 pub use hash::{zns_psi_rcm, ZERO_PREV_RCM, ZNS_DOMAIN_TAG};
-pub use memo::{parse_memo, ParsedMemo, MEMO_SIZE};
+pub use memo::{parse_memo, parse_name_note_memo, ParsedMemo, NameAction, MEMO_SIZE};
 pub use verify::verify_name_note;
