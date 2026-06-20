@@ -38,11 +38,11 @@ pub use pasta_curves::pallas;
 /// and has no dependency on the full orchard crate.
 pub type Rho = pallas::Base;
 
-/// The extracted note commitment (on-chain `cmx`).
+/// The note commitment (on-chain `cmx`).
 ///
 /// This is a type alias to the raw field element.
 /// Orchard uses `orchard::note::commitment::ExtractedNoteCommitment(pallas::Base)`.
-pub type ExtractedNoteCommitment = pallas::Base;
+pub type NoteCommitment = pallas::Base;
 
 /// Construct a Pallas base-field element from its 32-byte little-endian
 /// representation.
