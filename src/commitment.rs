@@ -8,7 +8,11 @@
 use blake2b_simd::Params;
 use pasta_curves::{group::ff::FromUniformBytes, pallas};
 
-use crate::{NoteCommitment, Rho};
+/// The ρ value used in an Orchard note commitment.
+pub type Rho = pallas::Base;
+
+/// The note commitment (on-chain `cmx`).
+pub type NoteCommitment = pallas::Base;
 
 /// Domain separation tag
 pub const ZNS_DOMAIN_TAG: &[u8] = b"ZcashName/v1";
