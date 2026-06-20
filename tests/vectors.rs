@@ -1,7 +1,6 @@
 //! Cross-language test vectors for the `zns_psi_rcm` hash construction.
 
-use pasta_curves::group::ff::PrimeField;
-use zns_verify::{note_commitment_cmx, zns_psi_rcm};
+use zns_verify::{base_from_bytes, note_commitment_cmx, PrimeField, zns_psi_rcm};
 
 struct Vector {
     label: &'static str,
@@ -63,11 +62,10 @@ const VECTORS: &[Vector] = &[
 /// move this value and break the test.
 #[test]
 fn commit_matches() {
-    use pasta_curves::pallas;
     let g_d = [0x11u8; 32];
     let pk_d = [0x22u8; 32];
     let value: u64 = 0;
-    let rho = pallas::Base::from_repr([0x33u8; 32]).unwrap();
+    let rho = base_from_bytes([0x33u8; 32]);
     let (psi, rcm) = zns_psi_rcm(b"claim", b"alice", b"u1xxx", &[0u8; 32]);
     let cmx = note_commitment_cmx(g_d, pk_d, value, rho, psi, rcm)
         .expect("commit must land off identity");
@@ -83,12 +81,11 @@ fn commit_matches() {
 /// construction (different from the primary claim-based commit_matches).
 #[test]
 fn commit_matches_release_vector() {
-    use pasta_curves::pallas;
     let v = &VECTORS[2];
     let (psi, rcm) = zns_psi_rcm(v.action, v.name, v.ua, &v.prev_rcm);
     let g_d = [0x11u8; 32];
     let pk_d = [0x22u8; 32];
-    let rho = pallas::Base::from_repr([0x33u8; 32]).unwrap();
+    let rho = base_from_bytes([0x33u8; 32]);
     let cmx = note_commitment_cmx(g_d, pk_d, 0, rho, psi, rcm)
         .expect("release commit must land off identity");
     assert_eq!(
@@ -103,12 +100,11 @@ fn commit_matches_release_vector() {
 /// construction (different from the claim and release commit_matches).
 #[test]
 fn commit_matches_update_vector() {
-    use pasta_curves::pallas;
     let v = &VECTORS[1];
     let (psi, rcm) = zns_psi_rcm(v.action, v.name, v.ua, &v.prev_rcm);
     let g_d = [0x11u8; 32];
     let pk_d = [0x22u8; 32];
-    let rho = pallas::Base::from_repr([0x33u8; 32]).unwrap();
+    let rho = base_from_bytes([0x33u8; 32]);
     let cmx = note_commitment_cmx(g_d, pk_d, 0, rho, psi, rcm)
         .expect("update commit must land off identity");
     assert_eq!(
@@ -122,12 +118,11 @@ fn commit_matches_update_vector() {
 /// variable-length name and ua through the full Sinsemilla construction.
 #[test]
 fn commit_matches_long_vector() {
-    use pasta_curves::pallas;
     let v = &VECTORS[3];
     let (psi, rcm) = zns_psi_rcm(v.action, v.name, v.ua, &v.prev_rcm);
     let g_d = [0x11u8; 32];
     let pk_d = [0x22u8; 32];
-    let rho = pallas::Base::from_repr([0x33u8; 32]).unwrap();
+    let rho = base_from_bytes([0x33u8; 32]);
     let cmx = note_commitment_cmx(g_d, pk_d, 0, rho, psi, rcm)
         .expect("long commit must land off identity");
     assert_eq!(

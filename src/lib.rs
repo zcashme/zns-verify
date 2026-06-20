@@ -43,7 +43,6 @@ pub fn base_from_bytes(bytes: [u8; 32]) -> pallas::Base {
 /// the on-chain `cmx` value.
 pub use base_from_bytes as cmx_from_bytes;
 
-// Re-export decrypt at the crate root when the feature is on, preserving the
-// path `zns_verify::decrypt::*`.
+// Re-export decrypt at the crate root when the feature is on,
 #[cfg(feature = "decrypt")]
 pub use verify::decrypt;
