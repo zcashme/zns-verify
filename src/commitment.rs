@@ -8,6 +8,8 @@
 use blake2b_simd::Params;
 use pasta_curves::{group::ff::FromUniformBytes, pallas};
 
+use crate::{ExtractedNoteCommitment, Rho};
+
 /// Domain separation tag
 pub const ZNS_DOMAIN_TAG: &[u8] = b"ZcashName/v1";
 
@@ -75,10 +77,10 @@ pub fn note_commitment_cmx(
     g_d: [u8; 32],
     pk_d: [u8; 32],
     value: u64,
-    rho: pallas::Base,
+    rho: Rho,
     psi: pallas::Base,
     rcm: pallas::Scalar,
-) -> Option<pallas::Base> {
+) -> Option<ExtractedNoteCommitment> {
     let domain = CommitDomain::new(NOTE_COMMITMENT_PERSONALIZATION);
     let value_bytes = value.to_le_bytes();
     let g_d_bits = BitArray::<_, Lsb0>::new(g_d);
@@ -92,5 +94,5 @@ pub fn note_commitment_cmx(
         .chain(value_bytes.view_bits::<Lsb0>().iter().by_vals())
         .chain(rho_bits.iter().by_vals().take(L_ORCHARD_BASE))
         .chain(psi_bits.iter().by_vals().take(L_ORCHARD_BASE));
-    Option::<pallas::Base>::from(domain.short_commit(bits, &rcm))
+    Option::<ExtractedNoteCommitment>::from(domain.short_commit(bits, &rcm))
 }

@@ -8,7 +8,7 @@
 //! shared parser. This function is deliberately parse-agnostic so a caller
 //! with already-parsed fields (or a non-memo source) pays no string cost.
 
-use pasta_curves::pallas;
+use crate::{ExtractedNoteCommitment, Rho};
 
 use crate::commitment::{note_commitment_cmx, zns_psi_rcm};
 
@@ -33,8 +33,8 @@ pub fn verify_name_note(
     g_d: [u8; 32],
     pk_d: [u8; 32],
     value: u64,
-    rho: pallas::Base,
-    expected_cmx: pallas::Base,
+    rho: Rho,
+    expected_cmx: ExtractedNoteCommitment,
 ) -> bool {
     let (psi, rcm) = zns_psi_rcm(action, name, ua, prev_rcm);
     match note_commitment_cmx(g_d, pk_d, value, rho, psi, rcm) {

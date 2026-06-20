@@ -30,6 +30,20 @@ pub use verify::verify_name_note;
 pub use group::ff::PrimeField;
 pub use pasta_curves::pallas;
 
+/// The ρ value used in an Orchard note commitment.
+///
+/// This is a type alias to the raw field element (not a newtype wrapper).
+/// Orchard uses `orchard::note::Rho(pallas::Base)`.
+/// zns-verify uses the bare `pallas::Base` so the default build stays tiny
+/// and has no dependency on the full orchard crate.
+pub type Rho = pallas::Base;
+
+/// The extracted note commitment (on-chain `cmx`).
+///
+/// This is a type alias to the raw field element.
+/// Orchard uses `orchard::note::commitment::ExtractedNoteCommitment(pallas::Base)`.
+pub type ExtractedNoteCommitment = pallas::Base;
+
 /// Construct a Pallas base-field element from its 32-byte little-endian
 /// representation.
 ///
