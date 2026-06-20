@@ -1,14 +1,13 @@
 //! Tests for verify_name_note (the main verification entry point).
 
-use zns_verify::{verify_name_note, pallas, PrimeField};
+use zns_verify::{pallas, verify_name_note, PrimeField};
 
 // The same fixed inputs pinned by `tests/vectors.rs::commit_matches`, so the
 // capstone is anchored to the same `cmx` the cross-language vectors commit
 // to — a non-circular end-to-end check.
 const G_D: [u8; 32] = [0x11u8; 32];
 const PK_D: [u8; 32] = [0x22u8; 32];
-const PINNED_CMX_HEX: &str =
-    "53accd0df1c569731e8ad4fc8bcb483b953e3713ecc7a95202442daa026c4a02";
+const PINNED_CMX_HEX: &str = "53accd0df1c569731e8ad4fc8bcb483b953e3713ecc7a95202442daa026c4a02";
 
 fn rho() -> pallas::Base {
     pallas::Base::from_repr([0x33u8; 32]).unwrap()

@@ -1,19 +1,5 @@
 //! Cryptographic material derivation for ZNS bindings.
 //!
-//! This module contains the two constructions that turn the logical binding
-//! tuple (action, name, ua, prev_rcm) plus note public components into the
-//! values that appear in a Name Note:
-//!
-//! - BLAKE2b-based derivation of `(ψ, rcm)` via length-prefixed domain
-//!   separation (`zns_psi_rcm`).
-//! - Sinsemilla note commitment (`note_commitment_cmx`) that produces `cmx`.
-//!
-//! These belong together because they exist only to feed `verify_name_note`.
-//! They must remain byte-identical to every other correct implementation
-//! (including non-Rust ones) — protocol fidelity is non-negotiable here.
-//!
-//! Length prefixing, domain tag, and bit ordering are load-bearing for
-//! collision resistance and cross-language reproducibility.
 
 // ============================================================================
 // (ψ, rcm) derivation — BLAKE2b with ZNS length-prefixed domain separation
@@ -22,22 +8,14 @@
 use blake2b_simd::Params;
 use pasta_curves::{group::ff::FromUniformBytes, pallas};
 
-/// Domain separation tag — must never change. A protocol-breaking change
-/// would require a new tag and new cross-language test vectors.
+/// Domain separation tag
 pub const ZNS_DOMAIN_TAG: &[u8] = b"ZcashName/v1";
 
+/// Field tags for the two distinct outputs of `zns_psi_rcm`.
 const TAG_PSI: &[u8] = b"psi";
 const TAG_RCM: &[u8] = b"rcm";
 
 /// Derive `(ψ, rcm)` from a ZNS registration tuple.
-///
-/// Both values are produced by BLAKE2b-512 under the ZNS domain tag,
-/// using distinct field tags ("psi" vs "rcm") and then reduced into
-/// the appropriate Pallas fields via `from_uniform_bytes`.
-///
-/// Every variable-length input is length-prefixed (u32 LE + bytes).
-/// `prev_rcm` is the one exception: it is fed raw (its length is implicit
-/// as 32 bytes and it is already a fixed-size witness).
 pub fn zns_psi_rcm(
     action: &[u8],
     name: &[u8],
@@ -46,9 +24,8 @@ pub fn zns_psi_rcm(
 ) -> (pallas::Base, pallas::Scalar) {
     let psi =
         pallas::Base::from_uniform_bytes(&tagged_zns_hash(TAG_PSI, action, name, ua, prev_rcm));
-    let rcm = pallas::Scalar::from_uniform_bytes(&tagged_zns_hash(
-        TAG_RCM, action, name, ua, prev_rcm,
-    ));
+    let rcm =
+        pallas::Scalar::from_uniform_bytes(&tagged_zns_hash(TAG_RCM, action, name, ua, prev_rcm));
     (psi, rcm)
 }
 
@@ -76,8 +53,6 @@ fn tagged_zns_hash(
     out.copy_from_slice(h.finalize().as_bytes());
     out
 }
-
-
 
 // ============================================================================
 // Note commitment (Sinsemilla)

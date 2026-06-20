@@ -1,8 +1,11 @@
 //! Tests for the memo grammar (parse_memo, encode_*, validate_name, etc.).
 
 use zns_verify::{
+    memo::{
+        encode_challenge, encode_confirm, encode_name_note, encode_request, validate_name,
+        MemoError,
+    },
     parse_memo, Action, ParsedMemo, MEMO_SIZE,
-    memo::{validate_name, MemoError, encode_request, encode_name_note, encode_challenge, encode_confirm},
 };
 
 fn padded(s: &str) -> [u8; MEMO_SIZE] {

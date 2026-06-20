@@ -1,22 +1,5 @@
 //! Protocol rules for ZNS — the single source of truth for cross-implementation agreement.
 //!
-//! This module is the canonical definition of:
-//!
-//! - The three actions: [`Action`]
-//! - The name lifecycle transition rule: [`Tip`] and [`prev_rcm_for`]
-//! - The strict memo grammar and its (de)serializers: [`parse_memo`],
-//!   [`ParsedMemo`], [`encode_request`], [`encode_name_note`], etc.
-//! - Name validation and the `ZERO_PREV_RCM` genesis constant.
-//!
-//! The Registry (what to mint), the Resolver (what was minted), and any future
-//! slash contract (what *should* have been minted) **must** produce and consume
-//! identical bytes. Leniency would let two correct-looking implementations
-//! disagree on the meaning of the same on-chain memo — breaking slashability
-//! and independent verifiability (`DESIGN.md §17`).
-//!
-//! All other code (wallets, indexers, alternative implementations in any
-//! language) should treat the behavior of this module as the specification for
-//! memo shape, name syntax, and legal chain transitions.
 
 // ============================================================================
 // Action
@@ -54,8 +37,6 @@ impl Action {
     }
 }
 
-
-
 // ============================================================================
 // Chain rule (name lifecycle transitions)
 // ============================================================================
@@ -89,14 +70,10 @@ pub fn prev_rcm_for(tip: Option<&Tip>, action: Action) -> Option<[u8; 32]> {
     match (action, tip) {
         (Action::Claim, None) => Some(ZERO_PREV_RCM),
         (Action::Claim, Some(t)) if t.action == Action::Release => Some(ZERO_PREV_RCM),
-        (Action::Update | Action::Release, Some(t)) if t.action != Action::Release => {
-            Some(t.rcm)
-        }
+        (Action::Update | Action::Release, Some(t)) if t.action != Action::Release => Some(t.rcm),
         _ => None,
     }
 }
-
-
 
 // ============================================================================
 // Memo grammar (canonical parser + encoder)
@@ -104,12 +81,6 @@ pub fn prev_rcm_for(tip: Option<&Tip>, action: Action) -> Option<[u8; 32]> {
 
 /*
 The canonical ZNS memo grammar — one parser for every party.
-
-`DESIGN.md §17`: the Registry (what to mint), the Resolver (what was
-minted), and the future slash contract (what *should* have been minted)
-must parse memos identically — if their parsers disagree, the slash
-mechanism breaks. This module is that single parser, plus the matching
-serializer, so agreement is by construction rather than by review.
 
 The grammar covers every ZNS memo that appears on chain:
 
@@ -380,11 +351,7 @@ pub fn validate_name(name: &str) -> Result<(), MemoError> {
 /// Encode a lifecycle *request* memo (user → registry), zero-padded to
 /// [`MEMO_SIZE`]. It round-trips through [`parse_memo`] by construction.
 /// RELEASE requires an empty `ua`.
-pub fn encode_request(
-    action: Action,
-    name: &str,
-    ua: &str,
-) -> Result<[u8; MEMO_SIZE], MemoError> {
+pub fn encode_request(action: Action, name: &str, ua: &str) -> Result<[u8; MEMO_SIZE], MemoError> {
     validate_name(name)?;
     let verb = lifecycle_verb(action, ua)?;
     match action {
@@ -463,5 +430,3 @@ fn encode(fields: &[&str]) -> Result<[u8; MEMO_SIZE], MemoError> {
     }
     Ok(memo)
 }
-
-
