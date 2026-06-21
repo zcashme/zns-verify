@@ -9,6 +9,12 @@ pub mod commitment;
 pub mod memo;
 pub mod verify;
 
+// Feature-gated relaxed trial decryption. Declared as a top-level module
+// (rather than nested inside verify) because it is a substantial, self-
+// contained unit that pulls in heavy optional dependencies.
+#[cfg(feature = "decrypt")]
+pub mod decrypt;
+
 // -----------------------------------------------------------------------------
 // Re-exports
 // -----------------------------------------------------------------------------
@@ -16,7 +22,7 @@ pub mod verify;
 pub use memo::Action;
 pub use memo::{prev_rcm_for, Tip, ZERO_PREV_RCM};
 
-pub use commitment::{note_commitment_cmx, zns_psi_rcm, ZNS_DOMAIN_TAG, NoteCommitment, Rho};
+pub use commitment::{note_commitment_cmx, zns_psi_rcm, NoteCommitment, Rho, ZNS_DOMAIN_TAG};
 
 pub use memo::{
     parse_claim_memo, parse_memo, parse_name_note_memo, parse_release_memo, parse_update_memo,
@@ -32,9 +38,6 @@ pub use pasta_curves::pallas;
 
 /// Construct a Pallas base-field element from its 32-byte little-endian
 /// representation.
-///
-/// This is intended for test vectors and known-good constants. It will
-/// panic if the bytes are not a valid field element.
 pub fn base_from_bytes(bytes: [u8; 32]) -> pallas::Base {
     Option::from(pallas::Base::from_repr(bytes)).expect("invalid Pallas base field element")
 }
@@ -42,7 +45,3 @@ pub fn base_from_bytes(bytes: [u8; 32]) -> pallas::Base {
 /// Convenience alias for `base_from_bytes` when you are constructing
 /// the on-chain `cmx` value.
 pub use base_from_bytes as cmx_from_bytes;
-
-// Re-export decrypt at the crate root when the feature is on,
-#[cfg(feature = "decrypt")]
-pub use verify::decrypt;
