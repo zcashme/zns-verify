@@ -2,16 +2,17 @@
 name = "zns-verify"
 version = "0.0.1"
 edition = "2021"
-description = "ZcashName (ZNS) hash, action, and memo primitives — used by Registry minters and Resolvers"
+description = "ZcashName (ZNS) hash, action, and memo primitives -- used by Registry minters and Resolvers"
+license = "MIT"
 publish = false
 
 [features]
 # Default is the pure verification kernel: no_std, no orchard, pasta/sinsemilla
-# math only — droppable into a wallet, SDK, enclave, or embedded target.
+# math only -- droppable into a wallet, SDK, enclave, or embedded target.
 default = []
 # `decrypt` adds relaxed Orchard trial decryption (skips the ZIP-212 cmx check)
 # for scanning Name Notes. It pulls orchard + the cipher primitives and forces
-# std, so it is strictly opt-in — anyone who only needs to *verify* a binding
+# std, so it is strictly opt-in -- anyone who only needs to *verify* a binding
 # never compiles it.
 decrypt = [
     "dep:orchard",
@@ -23,14 +24,13 @@ decrypt = [
 
 [dependencies]
 blake2b_simd = { version = "1", default-features = false }
-pasta_curves = "0.5"
+pasta_curves = { version = "0.5", default-features = false }
 
 # For computing the expected Sinsemilla note commitment from the
-# caller-supplied (g_d, pk_d, v, ρ, ψ, rcm) — entirely from crates.io,
+# caller-supplied (g_d, pk_d, v, ρ, ψ, rcm) -- entirely from crates.io,
 # no orchard fork required.
 sinsemilla = "0.1"
-bitvec = { version = "1", default-features = false }
-group = "0.13"
+group = { version = "0.13", default-features = false }
 
 # ── `decrypt` (relaxed orchard trial decrypt, optional) ──────────────────────
 # Re-implements zcash_note_encryption's inner decrypt to skip the ZIP-212 cmx
