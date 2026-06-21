@@ -118,6 +118,22 @@ pub const MEMO_SIZE: usize = 512;
 /// Maximum name length in bytes (the DNS label bound).
 pub const MAX_NAME_LEN: usize = 63;
 
+/// A committed ZNS Name Note (the form that appears on-chain).
+///
+/// This is the only memo shape that carries a `prev_rcm` witness and can be
+/// directly used with `verify_name_note`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NameNote<'a> {
+    /// CLAIM, UPDATE, or RELEASE.
+    pub action: Action,
+    /// The name being acted on.
+    pub name: &'a str,
+    /// The UA being bound (empty for RELEASE).
+    pub ua: &'a str,
+    /// The disclosed `prev_rcm` witness from the on-chain Name Note.
+    pub prev_rcm: [u8; 32],
+}
+
 /// A parsed ZNS memo, borrowing from the input bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParsedMemo<'a> {
@@ -194,6 +210,26 @@ pub fn parse_name_note_memo(raw: &[u8]) -> Result<(&[u8], &[u8], &[u8], [u8; 32]
         } => Ok((action.as_bytes(), name.as_bytes(), ua.as_bytes(), prev_rcm)),
         _ => Err(MemoError::FieldCount),
     }
+}
+
+/// Parse a committed Name Note memo (the on-chain form) returning a `NameNote`.
+///
+/// This is the preferred API for verification: it returns a structured `NameNote`
+/// with a guaranteed `prev_rcm` instead of an `Option`.
+pub fn parse_name_note(raw: &[u8]) -> Result<NameNote<'_>, MemoError> {
+    let (action_bytes, name_bytes, ua_bytes, prev_rcm) = parse_name_note_memo(raw)?;
+    let action = Action::from_bytes(action_bytes)
+        .ok_or(MemoError::UnknownVerb)?;
+    let name = core::str::from_utf8(name_bytes)
+        .expect("name bytes came from validated &str");
+    let ua = core::str::from_utf8(ua_bytes)
+        .expect("ua bytes came from validated &str");
+    Ok(NameNote {
+        action,
+        name,
+        ua,
+        prev_rcm,
+    })
 }
 
 fn parse_lifecycle_request(raw: &[u8]) -> Result<(&[u8], &[u8], &[u8]), MemoError> {
