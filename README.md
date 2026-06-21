@@ -26,11 +26,34 @@ This kernel is the protocol's shared core — the crypto plus the two pure
 rules every party must compute identically — which is what lets it drop
 unchanged into a wallet, SDK, resolver, enclave, or embedded target.
 
+## Features & capabilities
+
+- **Pure verification kernel** (default): `no_std`, no orchard, minimal math-only
+  dependencies (`blake2b_simd`, `pasta_curves`, `sinsemilla`, `bitvec`, `group`).
+  Intended to be dropped into wallets, SDKs, enclaves, or embedded targets.
+- **`decrypt` feature** (opt-in): relaxed Orchard trial decryption that skips
+  the ZIP-212 `cmx` check. Useful for scanning Name Notes. Pulls `orchard` +
+  pinned ciphers and forces `std`.
+- `NameNote<'a>` — clean struct representing a committed on-chain Name Note
+  (with guaranteed `prev_rcm` witness).
+- Full strict ZNS memo grammar with exact field counts, DNS-label name rules,
+  and 64-lowercase-hex `prev_rcm`.
+- `Action` enum and name validation (`validate_name`).
+- Lifecycle / chain rules (`prev_rcm_for`, `Tip`, `ZERO_PREV_RCM`).
+- `MemoError` for all grammar violations.
+- `base_from_bytes` / `cmx_from_bytes` helpers.
+- Re-exports for `pallas` and `PrimeField` (so you don't need direct curve dependencies).
+- `#![forbid(unsafe_code)]` and `#![deny(missing_docs)]`.
+- "Recompute, don't trust" design — fully standalone verification with no
+  reliance on registry/resolver/indexer.
+- Support for `prev_rcm` as a witness (enables single-note verification,
+  tail-scan backstops, and fraud proofs).
+
 ## Footprint
 
-`#![no_std]`, `#![forbid(unsafe_code)]`, and no `orchard` dependency.
-Production dependencies: `blake2b_simd`, `pasta_curves`, `sinsemilla`,
-`bitvec`, `group`.
+`#![no_std]` (except with the `decrypt` feature), `#![forbid(unsafe_code)]`,
+and minimal dependencies. Production crates: `blake2b_simd`, `pasta_curves`,
+`sinsemilla`, `bitvec`, `group`.
 
 ## Usage
 
