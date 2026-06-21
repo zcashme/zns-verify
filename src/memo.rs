@@ -75,7 +75,7 @@ pub fn prev_rcm_for(tip: Option<&Tip>, action: Action) -> Option<[u8; 32]> {
 /*
 The canonical ZNS memo grammar — one parser for every party.
 
-The grammar covers every ZNS memo that appears on chain:
+The grammar covers the ZNS memos that appear on chain:
 
 ```text
 ZNS:claim:<name>:<ua>                  lifecycle request (user → registry)
@@ -84,25 +84,19 @@ ZNS:release:<name>                     lifecycle request
 ZNS:claim:<name>:<ua>:<prev_rcm>       Name Note canonical form (registry mint)
 ZNS:update:<name>:<ua>:<prev_rcm>      Name Note canonical form
 ZNS:release:<name>::<prev_rcm>         Name Note canonical form (ua empty)
-ZNS:challenge:<name>:<nonce>           registry → owner: the OTP for a mutation
-ZNS:confirm:<name>:<nonce>             owner → registry: the OTP echoed back
 ```
 
-`<prev_rcm>` is 64 lowercase hex chars (`DESIGN.md §6`). It is the
-*witness* for note-local verification: the commitment already binds
-`prev_rcm` as a hash input, so disclosing it in the Name Note's memo lets
-any scanner verify a single note's binding without first reconstructing
-the name's whole chain — which is what makes the tail-scan backstop and
-single-note fraud proofs (`DESIGN.md §19.4`, `§12`) work against a
-withholding resolver. Fields stay positional in all forms: a RELEASE Name
-Note has an explicitly empty `ua`, so `prev_rcm` never shifts columns.
+`<prev_rcm>` is 64 lowercase hex chars. It is the *witness* for note-local
+verification: the commitment already binds `prev_rcm` as a hash input, so
+disclosing it in the Name Note's memo lets any scanner verify a single note's
+binding without first reconstructing the name's whole chain. Fields stay
+positional in all forms: a RELEASE Name Note has an explicitly empty `ua`,
+so `prev_rcm` never shifts columns.
 
-The grammar is **strict**: exact field counts (extra or empty fields
-reject — a lenient parser that ignores trailing fields would let two
-implementations read different `ua`s from the same memo), and names follow
-the DNS-label rule (≤ [`MAX_NAME_LEN`] bytes of `a-z 0-9 -`, no leading or
-trailing hyphen). Memos are ZIP-302: 512 bytes, zero-padded; trailing
-zeros are stripped before parsing.
+The grammar is **strict**: exact field counts (extra or empty fields reject),
+and names follow the DNS-label rule (≤ [`MAX_NAME_LEN`] bytes of `a-z 0-9 -`,
+no leading or trailing hyphen). Memos are ZIP-302: 512 bytes, zero-padded;
+trailing zeros are stripped before parsing.
 */
 
 /// The fixed ZIP-302 memo size, in bytes.
@@ -153,7 +147,7 @@ pub enum MemoError {
 /// Common logic for splitting a ZNS: memo into its fields.
 /// This is the single strict implementation of the grammar rules
 /// (field counts, name validation, prev_rcm hex decoding, etc.).
-fn parse_zns_common(raw: &[u8]) -> Result<(&str, &str, Option<&str>, Option<[u8; 32]>), MemoError> {
+fn parse_zns_memo_fields(raw: &[u8]) -> Result<(&str, &str, Option<&str>, Option<[u8; 32]>), MemoError> {
     let end = raw.iter().rposition(|b| *b != 0).map_or(0, |p| p + 1);
     let text = core::str::from_utf8(&raw[..end]).map_err(|_| MemoError::NotZns)?;
 
@@ -173,9 +167,9 @@ fn parse_zns_common(raw: &[u8]) -> Result<(&str, &str, Option<&str>, Option<[u8;
     Ok((verb, name, arg, prev_rcm))
 }
 
-/// Parse a committed Name Note memo (the on-chain form) returning a `NameNote`.
+/// Parse a committed Name Note (the on-chain form) into its fields.
 pub fn parse_name_note(raw: &[u8]) -> Result<NameNote<'_>, MemoError> {
-    let (verb, name, arg, prev_rcm) = parse_zns_common(raw)?;
+    let (verb, name, arg, prev_rcm) = parse_zns_memo_fields(raw)?;
     let prev_rcm = prev_rcm.ok_or(MemoError::FieldCount)?;
 
     fn required(arg: Option<&str>) -> Result<&str, MemoError> {
@@ -213,62 +207,54 @@ pub fn parse_name_note(raw: &[u8]) -> Result<NameNote<'_>, MemoError> {
     }
 }
 
-fn parse_lifecycle_request(raw: &[u8]) -> Result<(&[u8], &[u8], &[u8]), MemoError> {
-    let (verb, name, arg, prev_rcm) = parse_zns_common(raw)?;
-    if prev_rcm.is_some() {
-        return Err(MemoError::FieldCount);
-    }
-
-    let action = match verb {
-        "claim" => Action::Claim,
-        "update" => Action::Update,
-        "release" => Action::Release,
-        _ => return Err(MemoError::UnknownVerb),
-    };
-
-    let ua = if verb == "release" {
-        if arg.is_some() {
-            return Err(MemoError::FieldCount);
-        }
-        ""
-    } else {
-        match arg {
-            Some(a) if !a.is_empty() => a,
-            _ => return Err(MemoError::EmptyArg),
-        }
-    };
-
-    Ok((action.as_bytes(), name.as_bytes(), ua.as_bytes()))
-}
-
 /// Parse a "claim" request memo (the user → registry form "ZNS:claim:<name>:<ua>").
 /// Returns (action, name, ua).
 pub fn parse_claim_memo(raw: &[u8]) -> Result<(&[u8], &[u8], &[u8]), MemoError> {
-    let (action, name, ua) = parse_lifecycle_request(raw)?;
-    if action != b"claim" {
+    let (verb, name, arg, prev_rcm) = parse_zns_memo_fields(raw)?;
+    if prev_rcm.is_some() {
+        return Err(MemoError::FieldCount);
+    }
+    if verb != "claim" {
         return Err(MemoError::UnknownVerb);
     }
-    Ok((action, name, ua))
+    let ua = match arg {
+        Some(a) if !a.is_empty() => a,
+        _ => return Err(MemoError::EmptyArg),
+    };
+    Ok((b"claim", name.as_bytes(), ua.as_bytes()))
 }
 
 /// Parse an "update" request memo (the user → registry form "ZNS:update:<name>:<ua>").
 /// Returns (action, name, ua).
 pub fn parse_update_memo(raw: &[u8]) -> Result<(&[u8], &[u8], &[u8]), MemoError> {
-    let (action, name, ua) = parse_lifecycle_request(raw)?;
-    if action != b"update" {
+    let (verb, name, arg, prev_rcm) = parse_zns_memo_fields(raw)?;
+    if prev_rcm.is_some() {
+        return Err(MemoError::FieldCount);
+    }
+    if verb != "update" {
         return Err(MemoError::UnknownVerb);
     }
-    Ok((action, name, ua))
+    let ua = match arg {
+        Some(a) if !a.is_empty() => a,
+        _ => return Err(MemoError::EmptyArg),
+    };
+    Ok((b"update", name.as_bytes(), ua.as_bytes()))
 }
 
 /// Parse a "release" request memo (the user → registry form "ZNS:release:<name>").
 /// Returns (action, name, ua) where ua is empty.
 pub fn parse_release_memo(raw: &[u8]) -> Result<(&[u8], &[u8], &[u8]), MemoError> {
-    let (action, name, ua) = parse_lifecycle_request(raw)?;
-    if action != b"release" {
+    let (verb, name, arg, prev_rcm) = parse_zns_memo_fields(raw)?;
+    if prev_rcm.is_some() {
+        return Err(MemoError::FieldCount);
+    }
+    if verb != "release" {
         return Err(MemoError::UnknownVerb);
     }
-    Ok((action, name, ua))
+    if arg.is_some() {
+        return Err(MemoError::FieldCount);
+    }
+    Ok((b"release", name.as_bytes(), b""))
 }
 
 /// Decode a `prev_rcm` field: exactly 64 lowercase hex chars.
@@ -313,7 +299,13 @@ pub fn validate_name(name: &str) -> Result<(), MemoError> {
 /// RELEASE requires an empty `ua`.
 pub fn encode_request(action: Action, name: &str, ua: &str) -> Result<[u8; MEMO_SIZE], MemoError> {
     validate_name(name)?;
-    let verb = lifecycle_verb(action, ua)?;
+    let verb = match action {
+        Action::Release if !ua.is_empty() => return Err(MemoError::FieldCount),
+        Action::Claim | Action::Update if ua.is_empty() => return Err(MemoError::EmptyArg),
+        Action::Claim => "claim",
+        Action::Update => "update",
+        Action::Release => "release",
+    };
     match action {
         Action::Release => encode(&["ZNS", verb, name]),
         _ => encode(&["ZNS", verb, name, ua]),
@@ -331,7 +323,13 @@ pub fn encode_name_note(
     prev_rcm: &[u8; 32],
 ) -> Result<[u8; MEMO_SIZE], MemoError> {
     validate_name(name)?;
-    let verb = lifecycle_verb(action, ua)?;
+    let verb = match action {
+        Action::Release if !ua.is_empty() => return Err(MemoError::FieldCount),
+        Action::Claim | Action::Update if ua.is_empty() => return Err(MemoError::EmptyArg),
+        Action::Claim => "claim",
+        Action::Update => "update",
+        Action::Release => "release",
+    };
     let mut hex = [0u8; 64];
     for (i, b) in prev_rcm.iter().enumerate() {
         const DIGITS: &[u8; 16] = b"0123456789abcdef";
@@ -342,35 +340,8 @@ pub fn encode_name_note(
     encode(&["ZNS", verb, name, ua, hex])
 }
 
-/// The verb for a lifecycle `action`, after checking its `ua` arity:
-/// CLAIM/UPDATE require a `ua`, RELEASE forbids one.
-fn lifecycle_verb(action: Action, ua: &str) -> Result<&'static str, MemoError> {
-    match action {
-        Action::Release if !ua.is_empty() => Err(MemoError::FieldCount),
-        Action::Claim | Action::Update if ua.is_empty() => Err(MemoError::EmptyArg),
-        Action::Claim => Ok("claim"),
-        Action::Update => Ok("update"),
-        Action::Release => Ok("release"),
-    }
-}
 
-/// Encode the registry's OTP challenge memo: `ZNS:challenge:<name>:<nonce>`.
-pub fn encode_challenge(name: &str, nonce: &str) -> Result<[u8; MEMO_SIZE], MemoError> {
-    validate_name(name)?;
-    if nonce.is_empty() {
-        return Err(MemoError::EmptyArg);
-    }
-    encode(&["ZNS", "challenge", name, nonce])
-}
 
-/// Encode the owner's OTP echo memo: `ZNS:confirm:<name>:<nonce>`.
-pub fn encode_confirm(name: &str, nonce: &str) -> Result<[u8; MEMO_SIZE], MemoError> {
-    validate_name(name)?;
-    if nonce.is_empty() {
-        return Err(MemoError::EmptyArg);
-    }
-    encode(&["ZNS", "confirm", name, nonce])
-}
 
 /// Join `fields` with `:` into a zero-padded ZIP-302 memo.
 fn encode(fields: &[&str]) -> Result<[u8; MEMO_SIZE], MemoError> {
