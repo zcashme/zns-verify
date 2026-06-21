@@ -4,7 +4,7 @@ use zns_verify::{base_from_bytes, pallas, verify_name_note};
 
 // The same fixed inputs pinned by `tests/vectors.rs::commit_matches`, so the
 // capstone is anchored to the same `cmx` the cross-language vectors commit
-// to — a non-circular end-to-end check.
+// to -- a non-circular end-to-end check.
 const G_D: [u8; 32] = [0x11u8; 32];
 const PK_D: [u8; 32] = [0x22u8; 32];
 const PINNED_CMX_HEX: &str = "53accd0df1c569731e8ad4fc8bcb483b953e3713ecc7a95202442daa026c4a02";
@@ -40,7 +40,7 @@ fn matches_pinned_vector() {
 fn rejects_tampered_ua() {
     // Same on-chain `cmx`, but a different claimed `ua`. The verifier
     // re-derives `(ψ, rcm)` from `ua`, so the recomputed `cmx` no longer
-    // matches — the swap is caught.
+    // matches -- the swap is caught.
     assert!(!verify_name_note(
         b"claim",
         b"alice",

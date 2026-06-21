@@ -2,10 +2,11 @@
 //!
 
 // ============================================================================
-// (ψ, rcm) derivation — BLAKE2b with ZNS length-prefixed domain separation
+// (ψ, rcm) derivation -- BLAKE2b with ZNS length-prefixed domain separation
 // ============================================================================
 
 use blake2b_simd::Params;
+use group::ff::PrimeField;
 use pasta_curves::{group::ff::FromUniformBytes, pallas};
 
 /// The ρ value used in an Orchard note commitment.
@@ -64,8 +65,6 @@ fn tagged_zns_hash(
 // Note commitment (Sinsemilla)
 // ============================================================================
 
-use bitvec::{array::BitArray, order::Lsb0, view::BitView};
-use group::ff::PrimeFieldBits;
 use sinsemilla::CommitDomain;
 
 /// Sinsemilla personalization tag for Orchard note commitments.
@@ -74,6 +73,15 @@ const NOTE_COMMITMENT_PERSONALIZATION: &str = "z.cash:Orchard-NoteCommit";
 /// Number of bits taken from each Pallas base-field input (`rho`, `psi`).
 /// Matches orchard's `L_ORCHARD_BASE`.
 const L_ORCHARD_BASE: usize = 255;
+
+/// Yields the bits of the bytes in little-endian bit order (LSB of each byte first).
+/// This is the exact order expected by Sinsemilla for Orchard note commitments.
+fn le_bytes_lsb0(bytes: &[u8]) -> impl Iterator<Item = bool> + '_ {
+    bytes
+        .iter()
+        .copied()
+        .flat_map(|b| (0..8).map(move |i| (b >> i) & 1 != 0))
+}
 
 /// Computes `cmx`, the x-coordinate of the Sinsemilla note commitment, from
 /// the raw note components plus caller-supplied `(ψ, rcm)`.
@@ -87,16 +95,14 @@ pub fn note_commitment_cmx(
 ) -> Option<NoteCommitment> {
     let domain = CommitDomain::new(NOTE_COMMITMENT_PERSONALIZATION);
     let value_bytes = value.to_le_bytes();
-    let g_d_bits = BitArray::<_, Lsb0>::new(g_d);
-    let pk_d_bits = BitArray::<_, Lsb0>::new(pk_d);
-    let rho_bits = rho.to_le_bits();
-    let psi_bits = psi.to_le_bits();
-    let bits = g_d_bits
-        .iter()
-        .by_vals()
-        .chain(pk_d_bits.iter().by_vals())
-        .chain(value_bytes.view_bits::<Lsb0>().iter().by_vals())
-        .chain(rho_bits.iter().by_vals().take(L_ORCHARD_BASE))
-        .chain(psi_bits.iter().by_vals().take(L_ORCHARD_BASE));
+    let rho_bytes = rho.to_repr();
+    let psi_bytes = psi.to_repr();
+
+    let bits = le_bytes_lsb0(&g_d)
+        .chain(le_bytes_lsb0(&pk_d))
+        .chain(le_bytes_lsb0(&value_bytes))
+        .chain(le_bytes_lsb0(&rho_bytes).take(L_ORCHARD_BASE))
+        .chain(le_bytes_lsb0(&psi_bytes).take(L_ORCHARD_BASE));
+
     Option::<NoteCommitment>::from(domain.short_commit(bits, &rcm))
 }

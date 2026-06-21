@@ -24,7 +24,7 @@ fn field_tag_separation() {
 
 #[test]
 fn length_prefix_prevents_collision() {
-    // "ali" || "cebob" vs "alice" || ":bob" — without length prefixes
+    // "ali" || "cebob" vs "alice" || ":bob" -- without length prefixes
     // the concatenation collides. Confirm our prefixing actually
     // distinguishes these.
     let a = zns_psi_rcm(b"claim", b"ali", b"cebob", &[0u8; 32]);

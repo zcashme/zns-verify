@@ -14,7 +14,7 @@ The kernel lets any party recompute the expected cmx from the claimed fields and
 - `#![no_std]` when the `decrypt` feature is not enabled.
 - `#![forbid(unsafe_code)]`
 - `#![deny(missing_docs)]`
-- Default dependencies are limited to: `blake2b_simd`, `pasta_curves`, `sinsemilla`, `bitvec`, `group`.
+- Default dependencies are limited to: `blake2b_simd`, `pasta_curves`, `sinsemilla`, `group`.
 - The `decrypt` feature is opt-in only. It pulls additional crates and forces `std`.
 
 ## Current Module Structure

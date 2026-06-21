@@ -1,4 +1,4 @@
-//! Protocol rules for ZNS — the reference definition of the memo grammar and lifecycle rules.
+//! Protocol rules for ZNS -- the reference definition of the memo grammar and lifecycle rules.
 
 // ============================================================================
 // Action
@@ -73,7 +73,7 @@ pub fn prev_rcm_for(tip: Option<&Tip>, action: Action) -> Option<[u8; 32]> {
 // ============================================================================
 
 /*
-The canonical ZNS memo grammar — one parser for every party.
+The canonical ZNS memo grammar -- one parser for every party.
 
 The grammar covers the ZNS memos that appear on chain:
 
@@ -275,7 +275,7 @@ fn decode_prev_rcm(s: &str) -> Result<[u8; 32], MemoError> {
     Ok(out)
 }
 
-/// Validate a ZNS name: 1–[`MAX_NAME_LEN`] bytes of `a-z 0-9 -`, with no
+/// Validate a ZNS name: 1 to [`MAX_NAME_LEN`] bytes of `a-z 0-9 -`, with no
 /// leading or trailing hyphen (the DNS-label rule).
 pub fn validate_name(name: &str) -> Result<(), MemoError> {
     let bytes = name.as_bytes();
