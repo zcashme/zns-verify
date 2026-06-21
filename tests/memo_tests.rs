@@ -1,11 +1,9 @@
-//! Tests for the memo grammar (parse_memo, encode_*, validate_name, etc.).
+//! Tests for the memo grammar (parse_*_memo, parse_name_note, encode_*, validate_name).
 
 use zns_verify::{
-    memo::{
-        encode_challenge, encode_confirm, encode_name_note, encode_request, validate_name,
-        MemoError,
-    },
-    parse_memo, Action, ParsedMemo, MEMO_SIZE,
+    memo::{encode_name_note, encode_request, validate_name, MemoError},
+    parse_claim_memo, parse_name_note, parse_release_memo, parse_update_memo, Action, NameNote,
+    MEMO_SIZE,
 };
 
 fn padded(s: &str) -> [u8; MEMO_SIZE] {
@@ -14,13 +12,13 @@ fn padded(s: &str) -> [u8; MEMO_SIZE] {
     m
 }
 
-fn lifecycle<'a>(
+fn name_note<'a>(
     action: Action,
     name: &'a str,
     ua: &'a str,
-    prev_rcm: Option<[u8; 32]>,
-) -> ParsedMemo<'a> {
-    ParsedMemo::Lifecycle {
+    prev_rcm: [u8; 32],
+) -> NameNote<'a> {
+    NameNote {
         action,
         name,
         ua,
@@ -31,30 +29,16 @@ fn lifecycle<'a>(
 #[test]
 fn parses_request_forms() {
     assert_eq!(
-        parse_memo(b"ZNS:claim:alice:u1xxx"),
-        Ok(lifecycle(Action::Claim, "alice", "u1xxx", None)),
+        parse_claim_memo(b"ZNS:claim:alice:u1xxx"),
+        Ok((&b"claim"[..], &b"alice"[..], &b"u1xxx"[..])),
     );
     assert_eq!(
-        parse_memo(b"ZNS:update:alice:u1new"),
-        Ok(lifecycle(Action::Update, "alice", "u1new", None)),
+        parse_update_memo(b"ZNS:update:alice:u1new"),
+        Ok((&b"update"[..], &b"alice"[..], &b"u1new"[..])),
     );
     assert_eq!(
-        parse_memo(b"ZNS:release:alice"),
-        Ok(lifecycle(Action::Release, "alice", "", None)),
-    );
-    assert_eq!(
-        parse_memo(b"ZNS:challenge:alice:deadbeef"),
-        Ok(ParsedMemo::Challenge {
-            name: "alice",
-            nonce: "deadbeef"
-        }),
-    );
-    assert_eq!(
-        parse_memo(b"ZNS:confirm:alice:deadbeef"),
-        Ok(ParsedMemo::Confirm {
-            name: "alice",
-            nonce: "deadbeef"
-        }),
+        parse_release_memo(b"ZNS:release:alice"),
+        Ok((&b"release"[..], &b"alice"[..], &b""[..])),
     );
 }
 
@@ -66,67 +50,92 @@ fn parses_name_note_forms() {
 
     let m = format!("ZNS:claim:alice:u1xxx:{hex}");
     assert_eq!(
-        parse_memo(m.as_bytes()),
-        Ok(lifecycle(Action::Claim, "alice", "u1xxx", Some(want))),
+        parse_name_note(m.as_bytes()),
+        Ok(name_note(Action::Claim, "alice", "u1xxx", want)),
     );
     // RELEASE keeps `ua` positional (explicitly empty).
     let m = format!("ZNS:release:alice::{hex}");
     assert_eq!(
-        parse_memo(m.as_bytes()),
-        Ok(lifecycle(Action::Release, "alice", "", Some(want)))
+        parse_name_note(m.as_bytes()),
+        Ok(name_note(Action::Release, "alice", "", want))
     );
 
     // The witness must be exactly 64 lowercase hex chars.
     assert_eq!(
-        parse_memo(b"ZNS:claim:alice:u1xxx:abcd"),
+        parse_name_note(b"ZNS:claim:alice:u1xxx:abcd"),
         Err(MemoError::InvalidPrevRcm)
     );
     let upper = format!("ZNS:claim:alice:u1xxx:{}", hex.to_uppercase());
-    assert_eq!(parse_memo(upper.as_bytes()), Err(MemoError::InvalidPrevRcm));
-    // Auth verbs never take a fifth field.
-    let m = format!("ZNS:confirm:alice:nonce:{hex}");
-    assert_eq!(parse_memo(m.as_bytes()), Err(MemoError::FieldCount));
+    assert_eq!(
+        parse_name_note(upper.as_bytes()),
+        Err(MemoError::InvalidPrevRcm)
+    );
+    // A request-form verb (no prev_rcm) is not a Name Note.
+    assert_eq!(
+        parse_name_note(b"ZNS:claim:alice:u1xxx"),
+        Err(MemoError::FieldCount)
+    );
+}
+
+#[test]
+fn request_parsers_reject_prev_rcm() {
+    let hex = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+    let m = format!("ZNS:claim:alice:u1xxx:{hex}");
+    assert_eq!(
+        parse_claim_memo(m.as_bytes()),
+        Err(MemoError::FieldCount)
+    );
+    let m = format!("ZNS:update:alice:u1new:{hex}");
+    assert_eq!(
+        parse_update_memo(m.as_bytes()),
+        Err(MemoError::FieldCount)
+    );
+    let m = format!("ZNS:release:alice::{hex}");
+    assert_eq!(
+        parse_release_memo(m.as_bytes()),
+        Err(MemoError::FieldCount)
+    );
 }
 
 #[test]
 fn zero_padding_is_stripped() {
     assert_eq!(
-        parse_memo(&padded("ZNS:claim:alice:u1xxx")),
-        Ok(lifecycle(Action::Claim, "alice", "u1xxx", None)),
+        parse_claim_memo(&padded("ZNS:claim:alice:u1xxx")),
+        Ok((&b"claim"[..], &b"alice"[..], &b"u1xxx"[..])),
     );
 }
 
 #[test]
 fn non_zns_memos_are_not_zns() {
-    assert_eq!(parse_memo(b"just a payment note"), Err(MemoError::NotZns));
-    assert_eq!(parse_memo(b"ZEC:claim:alice:u1"), Err(MemoError::NotZns));
-    assert_eq!(parse_memo(&[0u8; MEMO_SIZE]), Err(MemoError::NotZns));
-    assert_eq!(parse_memo(&[0xff, 0xfe]), Err(MemoError::NotZns));
+    assert_eq!(parse_claim_memo(b"just a payment note"), Err(MemoError::NotZns));
+    assert_eq!(parse_claim_memo(b"ZEC:claim:alice:u1"), Err(MemoError::NotZns));
+    assert_eq!(parse_claim_memo(&[0u8; MEMO_SIZE]), Err(MemoError::NotZns));
+    assert_eq!(parse_claim_memo(&[0xff, 0xfe]), Err(MemoError::NotZns));
 }
 
 #[test]
 fn strict_field_counts() {
     // The historic divergence this parser exists to kill: trailing fields
     // must reject, never be absorbed into `ua` or silently ignored. (A
-    // fifth lifecycle field is legal only as a valid prev_rcm witness.)
+    // fifth lifecycle field is legal only as a valid prev_rcm witness in
+    // parse_name_note.)
     assert_eq!(
-        parse_memo(b"ZNS:update:alice:u1x:extra"),
+        parse_name_note(b"ZNS:update:alice:u1x:extra"),
         Err(MemoError::InvalidPrevRcm)
     );
     assert_eq!(
-        parse_memo(b"ZNS:release:alice:junk"),
+        parse_release_memo(b"ZNS:release:alice:junk"),
         Err(MemoError::FieldCount)
     );
     assert_eq!(
-        parse_memo(b"ZNS:release:alice:"),
+        parse_release_memo(b"ZNS:release:alice:"),
         Err(MemoError::FieldCount)
     );
-    assert_eq!(parse_memo(b"ZNS:claim:alice"), Err(MemoError::EmptyArg));
-    assert_eq!(parse_memo(b"ZNS:claim:alice:"), Err(MemoError::EmptyArg));
-    assert_eq!(parse_memo(b"ZNS:confirm:alice"), Err(MemoError::EmptyArg));
-    assert_eq!(parse_memo(b"ZNS:claim"), Err(MemoError::FieldCount));
+    assert_eq!(parse_claim_memo(b"ZNS:claim:alice"), Err(MemoError::EmptyArg));
+    assert_eq!(parse_claim_memo(b"ZNS:claim:alice:"), Err(MemoError::EmptyArg));
+    assert_eq!(parse_claim_memo(b"ZNS:claim"), Err(MemoError::FieldCount));
     assert_eq!(
-        parse_memo(b"ZNS:settle:alice:u1x"),
+        parse_claim_memo(b"ZNS:settle:alice:u1x"),
         Err(MemoError::UnknownVerb)
     );
 }
@@ -144,7 +153,7 @@ fn name_rule_is_dns_label() {
     assert_eq!(validate_name(&"a".repeat(64)), Err(MemoError::InvalidName));
     // And through the parser:
     assert_eq!(
-        parse_memo(b"ZNS:claim:Alice:u1x"),
+        parse_claim_memo(b"ZNS:claim:Alice:u1x"),
         Err(MemoError::InvalidName)
     );
 }
@@ -153,42 +162,25 @@ fn name_rule_is_dns_label() {
 fn encode_round_trips() {
     let m = encode_request(Action::Claim, "alice", "u1xxx").unwrap();
     assert_eq!(
-        parse_memo(&m),
-        Ok(lifecycle(Action::Claim, "alice", "u1xxx", None))
+        parse_claim_memo(&m),
+        Ok((&b"claim"[..], &b"alice"[..], &b"u1xxx"[..]))
     );
     let m = encode_request(Action::Release, "alice", "").unwrap();
     assert_eq!(
-        parse_memo(&m),
-        Ok(lifecycle(Action::Release, "alice", "", None))
+        parse_release_memo(&m),
+        Ok((&b"release"[..], &b"alice"[..], &b""[..]))
     );
 
     let prev = [0xa5u8; 32];
     let m = encode_name_note(Action::Update, "alice", "u1new", &prev).unwrap();
     assert_eq!(
-        parse_memo(&m),
-        Ok(lifecycle(Action::Update, "alice", "u1new", Some(prev)))
+        parse_name_note(&m),
+        Ok(name_note(Action::Update, "alice", "u1new", prev))
     );
     let m = encode_name_note(Action::Release, "alice", "", &prev).unwrap();
     assert_eq!(
-        parse_memo(&m),
-        Ok(lifecycle(Action::Release, "alice", "", Some(prev)))
-    );
-
-    let m = encode_challenge("alice", "deadbeef").unwrap();
-    assert_eq!(
-        parse_memo(&m),
-        Ok(ParsedMemo::Challenge {
-            name: "alice",
-            nonce: "deadbeef"
-        })
-    );
-    let m = encode_confirm("alice", "deadbeef").unwrap();
-    assert_eq!(
-        parse_memo(&m),
-        Ok(ParsedMemo::Confirm {
-            name: "alice",
-            nonce: "deadbeef"
-        })
+        parse_name_note(&m),
+        Ok(name_note(Action::Release, "alice", "", prev))
     );
 }
 
@@ -210,7 +202,6 @@ fn encode_rejects_what_parse_rejects() {
         encode_name_note(Action::Claim, "alice", "", &[0u8; 32]),
         Err(MemoError::EmptyArg)
     );
-    assert_eq!(encode_challenge("alice", ""), Err(MemoError::EmptyArg));
     // A ua that cannot fit the ZIP-302 memo.
     let huge = "u".repeat(MEMO_SIZE);
     assert_eq!(

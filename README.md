@@ -48,7 +48,7 @@ unchanged into a wallet, SDK, resolver, enclave, or embedded target.
 - `Action` enum and name validation (`validate_name`).
 - Lifecycle / chain rules (`prev_rcm_for`, `Tip`, `ZERO_PREV_RCM`).
 - `MemoError` for all grammar violations.
-- `base_from_bytes` / `cmx_from_bytes` helpers.
+- `base_from_bytes` helper.
 - Re-exports for `pallas` and `PrimeField` (so you don't need direct curve dependencies).
 - `#![forbid(unsafe_code)]` and `#![deny(missing_docs)]`.
 - "Recompute, don't trust" design -- fully standalone verification with no

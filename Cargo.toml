@@ -4,12 +4,16 @@ version = "0.0.1"
 edition = "2021"
 description = "ZcashName (ZNS) hash, action, and memo primitives -- used by Registry minters and Resolvers"
 license = "MIT"
-publish = false
+repository = "https://github.com/zcashme/zns-verify"
+homepage = "https://github.com/zcashme/zns-verify"
+keywords = ["zcash", "zns", "orchard", "verification", "names"]
+categories = ["cryptography", "cryptography::cryptocurrencies"]
 
 [features]
 # Default is the pure verification kernel: no_std, no orchard, pasta/sinsemilla
 # math only -- droppable into a wallet, SDK, enclave, or embedded target.
 default = []
+
 # `decrypt` adds relaxed Orchard trial decryption (skips the ZIP-212 cmx check)
 # for scanning Name Notes. It pulls orchard + the cipher primitives and forces
 # std, so it is strictly opt-in -- anyone who only needs to *verify* a binding
