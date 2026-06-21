@@ -197,34 +197,44 @@ pub enum MemoError {
 ///
 /// **Legacy tuple API.** Prefer [`parse_name_note`] for new code — it returns
 /// the clean `NameNote` struct with a non-optional `prev_rcm`.
+/// Parse a committed Name Note memo (the on-chain form) returning a `NameNote`.
+///
+/// This is the preferred API for verification: it returns a structured `NameNote`
+/// with a guaranteed `prev_rcm` instead of an `Option`.
+pub fn parse_name_note(raw: &[u8]) -> Result<NameNote<'_>, MemoError> {
+    parse_name_note_inner(raw)
+}
+
+fn parse_name_note_inner(raw: &[u8]) -> Result<NameNote<'_>, MemoError> {
+    match parse_memo(raw)? {
+        ParsedMemo::Lifecycle {
+            action,
+            name,
+            ua,
+            prev_rcm: Some(prev_rcm),
+        } => Ok(NameNote {
+            action,
+            name,
+            ua,
+            prev_rcm,
+        }),
+        _ => Err(MemoError::FieldCount),
+    }
+}
+
+/// Parse a committed Name Note memo and return the four values needed for
+/// verification: (action, name, ua, prev_rcm).
+///
+/// **Legacy tuple API.** Prefer [`parse_name_note`] for new code — it returns
+/// the clean `NameNote` struct with a non-optional `prev_rcm`.
 pub fn parse_name_note_memo(raw: &[u8]) -> Result<(&[u8], &[u8], &[u8], [u8; 32]), MemoError> {
-    let note = parse_name_note(raw)?;
+    let note = parse_name_note_inner(raw)?;
     Ok((
         note.action.as_bytes(),
         note.name.as_bytes(),
         note.ua.as_bytes(),
         note.prev_rcm,
     ))
-}
-
-/// Parse a committed Name Note memo (the on-chain form) returning a `NameNote`.
-///
-/// This is the preferred API for verification: it returns a structured `NameNote`
-/// with a guaranteed `prev_rcm` instead of an `Option`.
-pub fn parse_name_note(raw: &[u8]) -> Result<NameNote<'_>, MemoError> {
-    let (action_bytes, name_bytes, ua_bytes, prev_rcm) = parse_name_note_memo(raw)?;
-    let action = Action::from_bytes(action_bytes)
-        .ok_or(MemoError::UnknownVerb)?;
-    let name = core::str::from_utf8(name_bytes)
-        .expect("name bytes came from validated &str");
-    let ua = core::str::from_utf8(ua_bytes)
-        .expect("ua bytes came from validated &str");
-    Ok(NameNote {
-        action,
-        name,
-        ua,
-        prev_rcm,
-    })
 }
 
 fn parse_lifecycle_request(raw: &[u8]) -> Result<(&[u8], &[u8], &[u8]), MemoError> {
