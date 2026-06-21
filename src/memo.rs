@@ -195,21 +195,16 @@ pub enum MemoError {
 /// Parse a committed Name Note memo and return the four values needed for
 /// verification: (action, name, ua, prev_rcm).
 ///
-/// This is the simplest entry point for the common case.
-/// You only need to import `parse_name_note_memo` and `verify_name_note`.
-///
-/// Returns an error for request forms (no prev_rcm), non-lifecycle memos,
-/// or invalid input.
+/// **Legacy tuple API.** Prefer [`parse_name_note`] for new code — it returns
+/// the clean `NameNote` struct with a non-optional `prev_rcm`.
 pub fn parse_name_note_memo(raw: &[u8]) -> Result<(&[u8], &[u8], &[u8], [u8; 32]), MemoError> {
-    match parse_memo(raw)? {
-        ParsedMemo::Lifecycle {
-            action,
-            name,
-            ua,
-            prev_rcm: Some(prev_rcm),
-        } => Ok((action.as_bytes(), name.as_bytes(), ua.as_bytes(), prev_rcm)),
-        _ => Err(MemoError::FieldCount),
-    }
+    let note = parse_name_note(raw)?;
+    Ok((
+        note.action.as_bytes(),
+        note.name.as_bytes(),
+        note.ua.as_bytes(),
+        note.prev_rcm,
+    ))
 }
 
 /// Parse a committed Name Note memo (the on-chain form) returning a `NameNote`.
