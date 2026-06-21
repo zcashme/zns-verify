@@ -1,5 +1,4 @@
-//! Protocol rules for ZNS — the single source of truth for cross-implementation agreement.
-//!
+//! Protocol rules for ZNS — the reference definition of the memo grammar and lifecycle rules.
 
 // ============================================================================
 // Action
@@ -41,21 +40,15 @@ impl Action {
 // Chain rule (name lifecycle transitions)
 // ============================================================================
 
-/// The `prev_rcm` value used for the first action in a name's chain (the
-/// CLAIM). A CLAIM has no predecessor, so its `prev_rcm` is the all-zero
-/// 32-byte string by definition.
-///
-/// This constant is part of the protocol rule, not a hash parameter.
+/// The genesis `prev_rcm` for CLAIM (initial value at the start of a name's chain).
 pub const ZERO_PREV_RCM: [u8; 32] = [0u8; 32];
 
-/// A name's chain tip as the fold sees it: the latest applied action —
-/// *including* RELEASE, which resolution hides but the rule needs — and that
-/// note's `rcm`.
+/// Name chain tip for the lifecycle rule (includes RELEASE).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Tip {
-    /// The latest applied action.
+    /// Latest action.
     pub action: Action,
-    /// That Name Note's `rcm` — the link the next action must extend.
+    /// `rcm` the next action must extend.
     pub rcm: [u8; 32],
 }
 
@@ -134,40 +127,7 @@ pub struct NameNote<'a> {
     pub prev_rcm: [u8; 32],
 }
 
-/// A parsed ZNS memo, borrowing from the input bytes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ParsedMemo<'a> {
-    /// A lifecycle action: a user request, or a Name Note's canonical memo.
-    /// `ua` is empty exactly for RELEASE.
-    Lifecycle {
-        /// CLAIM, UPDATE, or RELEASE.
-        action: Action,
-        /// The name acted on.
-        name: &'a str,
-        /// The UA being bound (empty for RELEASE).
-        ua: &'a str,
-        /// The disclosed chain-link witness — present exactly in the Name
-        /// Note canonical form, absent in user requests. With it, the note's
-        /// binding is verifiable standalone; an indexer still derives the
-        /// canonical `prev_rcm` from its own tip and treats a mismatch as
-        /// fork evidence.
-        prev_rcm: Option<[u8; 32]>,
-    },
-    /// Registry → owner: the OTP challenge for a pending mutation.
-    Challenge {
-        /// The name under mutation.
-        name: &'a str,
-        /// The one-time nonce.
-        nonce: &'a str,
-    },
-    /// Owner → registry: the OTP echoed back to authorize the mutation.
-    Confirm {
-        /// The name under mutation.
-        name: &'a str,
-        /// The echoed nonce.
-        nonce: &'a str,
-    },
-}
+
 
 /// Why a memo failed to parse.
 ///
@@ -192,11 +152,29 @@ pub enum MemoError {
     TooLong,
 }
 
-/// Parse a committed Name Note memo and return the four values needed for
-/// verification: (action, name, ua, prev_rcm).
-///
-/// **Legacy tuple API.** Prefer [`parse_name_note`] for new code — it returns
-/// the clean `NameNote` struct with a non-optional `prev_rcm`.
+/// Common logic for splitting a ZNS: memo into its fields.
+/// This is the single strict implementation of the grammar rules
+/// (field counts, name validation, prev_rcm hex decoding, etc.).
+fn parse_zns_common(raw: &[u8]) -> Result<(&str, &str, Option<&str>, Option<[u8; 32]>), MemoError> {
+    let end = raw.iter().rposition(|b| *b != 0).map_or(0, |p| p + 1);
+    let text = core::str::from_utf8(&raw[..end]).map_err(|_| MemoError::NotZns)?;
+
+    let mut fields = text.split(':');
+    if fields.next() != Some("ZNS") {
+        return Err(MemoError::NotZns);
+    }
+    let verb = fields.next().ok_or(MemoError::FieldCount)?;
+    let name = fields.next().ok_or(MemoError::FieldCount)?;
+    validate_name(name)?;
+
+    let (arg, fifth) = (fields.next(), fields.next());
+    if fields.next().is_some() {
+        return Err(MemoError::FieldCount);
+    }
+    let prev_rcm = fifth.map(decode_prev_rcm).transpose()?;
+    Ok((verb, name, arg, prev_rcm))
+}
+
 /// Parse a committed Name Note memo (the on-chain form) returning a `NameNote`.
 ///
 /// This is the preferred API for verification: it returns a structured `NameNote`
@@ -206,47 +184,70 @@ pub fn parse_name_note(raw: &[u8]) -> Result<NameNote<'_>, MemoError> {
 }
 
 fn parse_name_note_inner(raw: &[u8]) -> Result<NameNote<'_>, MemoError> {
-    match parse_memo(raw)? {
-        ParsedMemo::Lifecycle {
-            action,
+    let (verb, name, arg, prev_rcm) = parse_zns_common(raw)?;
+    let prev_rcm = prev_rcm.ok_or(MemoError::FieldCount)?;
+
+    fn required(arg: Option<&str>) -> Result<&str, MemoError> {
+        match arg {
+            Some("") | None => Err(MemoError::EmptyArg),
+            Some(a) => Ok(a),
+        }
+    }
+
+    match verb {
+        "claim" => Ok(NameNote {
+            action: Action::Claim,
             name,
-            ua,
-            prev_rcm: Some(prev_rcm),
-        } => Ok(NameNote {
-            action,
-            name,
-            ua,
+            ua: required(arg)?,
             prev_rcm,
         }),
-        _ => Err(MemoError::FieldCount),
+        "update" => Ok(NameNote {
+            action: Action::Update,
+            name,
+            ua: required(arg)?,
+            prev_rcm,
+        }),
+        "release" => {
+            if arg != Some("") {
+                return Err(MemoError::FieldCount);
+            }
+            Ok(NameNote {
+                action: Action::Release,
+                name,
+                ua: "",
+                prev_rcm,
+            })
+        }
+        _ => Err(MemoError::UnknownVerb),
     }
-}
-
-/// Parse a committed Name Note memo and return the four values needed for
-/// verification: (action, name, ua, prev_rcm).
-///
-/// **Legacy tuple API.** Prefer [`parse_name_note`] for new code — it returns
-/// the clean `NameNote` struct with a non-optional `prev_rcm`.
-pub fn parse_name_note_memo(raw: &[u8]) -> Result<(&[u8], &[u8], &[u8], [u8; 32]), MemoError> {
-    let note = parse_name_note_inner(raw)?;
-    Ok((
-        note.action.as_bytes(),
-        note.name.as_bytes(),
-        note.ua.as_bytes(),
-        note.prev_rcm,
-    ))
 }
 
 fn parse_lifecycle_request(raw: &[u8]) -> Result<(&[u8], &[u8], &[u8]), MemoError> {
-    match parse_memo(raw)? {
-        ParsedMemo::Lifecycle {
-            action,
-            name,
-            ua,
-            prev_rcm: None,
-        } => Ok((action.as_bytes(), name.as_bytes(), ua.as_bytes())),
-        _ => Err(MemoError::FieldCount),
+    let (verb, name, arg, prev_rcm) = parse_zns_common(raw)?;
+    if prev_rcm.is_some() {
+        return Err(MemoError::FieldCount);
     }
+
+    let action = match verb {
+        "claim" => Action::Claim,
+        "update" => Action::Update,
+        "release" => Action::Release,
+        _ => return Err(MemoError::UnknownVerb),
+    };
+
+    let ua = if verb == "release" {
+        if arg.is_some() {
+            return Err(MemoError::FieldCount);
+        }
+        ""
+    } else {
+        match arg {
+            Some(a) if !a.is_empty() => a,
+            _ => return Err(MemoError::EmptyArg),
+        }
+    };
+
+    Ok((action.as_bytes(), name.as_bytes(), ua.as_bytes()))
 }
 
 /// Parse a "claim" request memo (the user → registry form "ZNS:claim:<name>:<ua>").
@@ -279,78 +280,7 @@ pub fn parse_release_memo(raw: &[u8]) -> Result<(&[u8], &[u8], &[u8]), MemoError
     Ok((action, name, ua))
 }
 
-/// Parse raw memo bytes (zero-padded per ZIP-302) as a ZNS memo.
-pub fn parse_memo(raw: &[u8]) -> Result<ParsedMemo<'_>, MemoError> {
-    let end = raw.iter().rposition(|b| *b != 0).map_or(0, |p| p + 1);
-    let text = core::str::from_utf8(&raw[..end]).map_err(|_| MemoError::NotZns)?;
 
-    let mut fields = text.split(':');
-    if fields.next() != Some("ZNS") {
-        return Err(MemoError::NotZns);
-    }
-    let verb = fields.next().ok_or(MemoError::FieldCount)?;
-    let name = fields.next().ok_or(MemoError::FieldCount)?;
-    validate_name(name)?;
-
-    // Fields four and five; a sixth always rejects. Strictness here is
-    // load-bearing: `split` (not `splitn`) means a `ua` containing `:` cannot
-    // silently absorb trailing fields differently across implementations.
-    let (arg, fifth) = (fields.next(), fields.next());
-    if fields.next().is_some() {
-        return Err(MemoError::FieldCount);
-    }
-    // The fifth field, when present, is always the Name Note form's
-    // `prev_rcm` witness.
-    let prev_rcm = fifth.map(decode_prev_rcm).transpose()?;
-    fn required(arg: Option<&str>) -> Result<&str, MemoError> {
-        match arg {
-            Some("") | None => Err(MemoError::EmptyArg),
-            Some(a) => Ok(a),
-        }
-    }
-
-    match verb {
-        "claim" => Ok(ParsedMemo::Lifecycle {
-            action: Action::Claim,
-            name,
-            ua: required(arg)?,
-            prev_rcm,
-        }),
-        "update" => Ok(ParsedMemo::Lifecycle {
-            action: Action::Update,
-            name,
-            ua: required(arg)?,
-            prev_rcm,
-        }),
-        "release" => match (arg, prev_rcm) {
-            // Request form: exactly three fields.
-            (None, None) => Ok(ParsedMemo::Lifecycle {
-                action: Action::Release,
-                name,
-                ua: "",
-                prev_rcm: None,
-            }),
-            // Name Note form: positional empty `ua`, then the witness.
-            (Some(""), Some(_)) => Ok(ParsedMemo::Lifecycle {
-                action: Action::Release,
-                name,
-                ua: "",
-                prev_rcm,
-            }),
-            _ => Err(MemoError::FieldCount),
-        },
-        "challenge" if prev_rcm.is_none() => Ok(ParsedMemo::Challenge {
-            name,
-            nonce: required(arg)?,
-        }),
-        "confirm" if prev_rcm.is_none() => Ok(ParsedMemo::Confirm {
-            name,
-            nonce: required(arg)?,
-        }),
-        "challenge" | "confirm" => Err(MemoError::FieldCount),
-        _ => Err(MemoError::UnknownVerb),
-    }
-}
 
 /// Decode a `prev_rcm` field: exactly 64 lowercase hex chars.
 fn decode_prev_rcm(s: &str) -> Result<[u8; 32], MemoError> {
@@ -390,7 +320,7 @@ pub fn validate_name(name: &str) -> Result<(), MemoError> {
 }
 
 /// Encode a lifecycle *request* memo (user → registry), zero-padded to
-/// [`MEMO_SIZE`]. It round-trips through [`parse_memo`] by construction.
+/// [`MEMO_SIZE`]. It round-trips through the strict grammar parser by construction.
 /// RELEASE requires an empty `ua`.
 pub fn encode_request(action: Action, name: &str, ua: &str) -> Result<[u8; MEMO_SIZE], MemoError> {
     validate_name(name)?;

@@ -13,7 +13,7 @@ pub mod verify;
 pub mod decrypt;
 
 // -----------------------------------------------------------------------------
-// Re-exports
+// ZNS Core Primitives
 // -----------------------------------------------------------------------------
 
 pub use memo::Action;
@@ -22,24 +22,17 @@ pub use memo::{prev_rcm_for, Tip, ZERO_PREV_RCM};
 pub use commitment::{note_commitment_cmx, zns_psi_rcm, NoteCommitment, Rho, ZNS_DOMAIN_TAG};
 
 pub use memo::{
-    parse_claim_memo,
-    parse_name_note, // the new preferred thing
-    parse_release_memo,
-    parse_update_memo,
-    MEMO_SIZE,
-    NameNote,
-    // parse_memo and ParsedMemo are gone
+    parse_claim_memo, parse_name_note, parse_release_memo, parse_update_memo, NameNote, MEMO_SIZE,
 };
 
 pub use verify::verify_name_note;
 
-// Re-export the curve and field types so users don't need direct dependencies
+// Curve and field types provided so callers don't need direct dependencies
 // on `pasta_curves` and `group` just to construct `rho` and `cmx`.
 pub use group::ff::PrimeField;
 pub use pasta_curves::pallas;
 
-/// Construct a Pallas base-field element from its 32-byte little-endian
-/// representation.
+/// Construct a Pallas base-field element from its 32-byte little-endian representation.
 pub fn base_from_bytes(bytes: [u8; 32]) -> pallas::Base {
     Option::from(pallas::Base::from_repr(bytes)).expect("invalid Pallas base field element")
 }
