@@ -16,11 +16,11 @@ the note's fields and compares it to the on-chain `cmx`.
 - `note_commitment_cmx(...)` — recompute the Sinsemilla note commitment.
 - `verify_name_note(...)` — both at once: recompute and compare against `cmx`,
   returning a plain `bool`.
-- `memo::parse_memo` / `memo::encode_*` — the canonical ZNS memo grammar.
-  One strict parser shared by registry, resolver, and slash contract
-  (`DESIGN.md §17`); agreement is by construction.
-- `memo::prev_rcm_for` — the per-name transition rule (`DESIGN.md §5`):
-  which `prev_rcm` an action must extend, given the name's tip.
+- `parse_name_note` — parse a committed on-chain Name Note into a `NameNote`.
+- `parse_claim_memo` / `parse_update_memo` / `parse_release_memo` — parse user request memos.
+- `encode_*` — encoders for requests and Name Notes (round-trip with the parser).
+- `prev_rcm_for` — the per-name transition rule: which `prev_rcm` an action must extend.
+- The canonical strict ZNS memo grammar (one parser for registry, resolver, etc.).
 
 This kernel is the protocol's shared core — the crypto plus the two pure
 rules every party must compute identically — which is what lets it drop
