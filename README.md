@@ -6,12 +6,8 @@ on.
 A ZcashName binding lives inside a Name Note's commitment. Its `(rcm, ψ)` are a
 deterministic hash of `(action, name, ua, prev_rcm)`, and the chain commits to
 that hash through the note's `cmx`. This crate recomputes the commitment from
-the note's fields and compares it to the on-chain `cmx`. Match: the
-`(name → ua)` binding is real. No match: it isn't — and you reached that
-conclusion without trusting any registry, resolver, or indexer.
+the note's fields and compares it to the on-chain `cmx`. 
 
-That is the entire point. Resolution can come from anywhere, because anyone can
-check the answer here.
 
 ## What it does
 
@@ -40,7 +36,7 @@ Production dependencies: `blake2b_simd`, `pasta_curves`, `sinsemilla`,
 
 ```rust
 use zns_verify::{
-    parse_claim_memo, parse_name_note_memo, parse_release_memo, parse_update_memo, verify_name_note,
+    parse_claim_memo, parse_name_note, parse_release_memo, parse_update_memo, verify_name_note,
     ZERO_PREV_RCM,
 };
 
@@ -65,12 +61,16 @@ let ok = verify_name_note(
 );
 
 // Name Note memo (from on chain)
-let (action, name, ua, prev_rcm) =
-    parse_name_note_memo(b"ZNS:claim:alice:u1xxx:0000000000000000000000000000000000000000000000000000000000000000")?;
+let note = parse_name_note(
+    b"ZNS:claim:alice:u1xxx:0000000000000000000000000000000000000000000000000000000000000000"
+)?;
 let ok = verify_name_note(
-    action, name, ua, &prev_rcm,
+    note.action.as_bytes(),
+    note.name.as_bytes(),
+    note.ua.as_bytes(),
+    &note.prev_rcm,
     g_d, pk_d, 0, rho, on_chain_cmx,
 );
 
-# Ok::<(), zns_verify::memo::MemoError>(())
+# Ok::<(), zns_verify::MemoError>(())
 ```

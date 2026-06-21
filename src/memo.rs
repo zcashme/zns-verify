@@ -127,8 +127,6 @@ pub struct NameNote<'a> {
     pub prev_rcm: [u8; 32],
 }
 
-
-
 /// Why a memo failed to parse.
 ///
 /// [`MemoError::NotZns`] is the common bulk case for a scanner (an ordinary
@@ -176,9 +174,6 @@ fn parse_zns_common(raw: &[u8]) -> Result<(&str, &str, Option<&str>, Option<[u8;
 }
 
 /// Parse a committed Name Note memo (the on-chain form) returning a `NameNote`.
-///
-/// This is the preferred API for verification: it returns a structured `NameNote`
-/// with a guaranteed `prev_rcm` instead of an `Option`.
 pub fn parse_name_note(raw: &[u8]) -> Result<NameNote<'_>, MemoError> {
     let (verb, name, arg, prev_rcm) = parse_zns_common(raw)?;
     let prev_rcm = prev_rcm.ok_or(MemoError::FieldCount)?;
@@ -275,8 +270,6 @@ pub fn parse_release_memo(raw: &[u8]) -> Result<(&[u8], &[u8], &[u8]), MemoError
     }
     Ok((action, name, ua))
 }
-
-
 
 /// Decode a `prev_rcm` field: exactly 64 lowercase hex chars.
 fn decode_prev_rcm(s: &str) -> Result<[u8; 32], MemoError> {

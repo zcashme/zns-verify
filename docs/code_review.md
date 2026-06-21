@@ -139,7 +139,7 @@ pub fn verify_name_note(
 
 It calls `zns_psi_rcm` then `note_commitment_cmx` and returns true only if the recomputed commitment x-coordinate equals the supplied value. Action, name, and ua bytes are passed through verbatim to the hash.
 
-## Decrypt Feature (Opt-In)
+## Decrypt Feature (Feature-flag Gated)
 
 The `decrypt` feature (Cargo.toml) adds `orchard`, `zcash_note_encryption`, `zcash_protocol`, and pinned versions of `chacha20` and `chacha20poly1305`. It forces `std`.
 
@@ -188,17 +188,10 @@ Changes to any of the above require a domain tag version bump and new vectors.
 - Documentation: `cargo doc --no-deps`
 - Clippy: `cargo clippy --all-features`
 
-All tests must pass, including the vector and cmx pin tests.
+## QUESTIONS 
 
-## References (Internal to This Crate)
+i) are we handling the pallas vectors correctly? (i.e., are we using the correct endianness and bit order for the inputs and outputs of the hash and Sinsemilla functions?)
 
-- `README.md` - high-level usage.
-- `PRAGMATISM.md` - stated design principles (protocol fidelity, strictness, minimality).
-- `src/lib.rs`, `src/memo.rs`, `src/commitment.rs`, `src/verify.rs` - the complete implementation.
-- `tests/vectors.rs` and other test files - executable specification and pins.
+ii) is the memo parser strict enough to prevent divergent interpretations across implementations? (e.g., are we rejecting extra fields, uppercase hex, invalid names, etc.?) while still being useful for wallets and resolvers?
 
-Deeper threat model and review planning material exists in `docs/THREAT_MODEL.md` and `docs/SECURITY_REVIEW_PLAN.md`.
-
----
-
-This document describes the crate as implemented. When in doubt, the source is authoritative.
+iii) is the note commitment construction correct and consistent with the Orchard spec? (e.g., are we using the right personalization, bit order, and field serialization?)
