@@ -19,7 +19,7 @@ The kernel lets any party recompute the expected cmx from the claimed fields and
 
 ## Current Module Structure
 
-- `src/lib.rs` - crate root, re-exports, small helpers (`base_from_bytes`, `cmx_from_bytes`, `Rho`, `NoteCommitment` types).
+- `src/lib.rs` - crate root, re-exports, small helpers (`base_from_bytes`, `Rho`, `NoteCommitment` types).
 - `src/memo.rs` - `Action`, chain rule (`Tip`, `prev_rcm_for`, `ZERO_PREV_RCM`), and the canonical memo parser/encoder (`parse_memo`, `parse_*_memo`, `encode_*`, `validate_name`).
 - `src/commitment.rs` - domain tag, BLAKE2b derivation of (psi, rcm), and Sinsemilla note commitment (`zns_psi_rcm`, `note_commitment_cmx`, `ZNS_DOMAIN_TAG`).
 - `src/verify.rs` - `verify_name_note` (the core binding check).

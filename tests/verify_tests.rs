@@ -1,6 +1,6 @@
 //! Tests for verify_name_note (the main verification entry point).
 
-use zns_verify::{base_from_bytes, cmx_from_bytes, pallas, verify_name_note};
+use zns_verify::{base_from_bytes, pallas, verify_name_note};
 
 // The same fixed inputs pinned by `tests/vectors.rs::commit_matches`, so the
 // capstone is anchored to the same `cmx` the cross-language vectors commit
@@ -16,7 +16,7 @@ fn rho() -> pallas::Base {
 fn pinned_cmx() -> pallas::Base {
     let mut bytes = [0u8; 32];
     hex::decode_to_slice(PINNED_CMX_HEX, &mut bytes).unwrap();
-    cmx_from_bytes(bytes)
+    base_from_bytes(bytes)
 }
 
 #[test]
@@ -101,7 +101,7 @@ fn rejects_wrong_expected_cmx() {
     let mut wrong = [0u8; 32];
     hex::decode_to_slice(PINNED_CMX_HEX, &mut wrong).unwrap();
     wrong[0] ^= 1;
-    let wrong_cmx = cmx_from_bytes(wrong);
+    let wrong_cmx = base_from_bytes(wrong);
     assert!(!verify_name_note(
         b"claim",
         b"alice",

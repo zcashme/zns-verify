@@ -46,7 +46,7 @@ use zns_verify::{
 
 # let (g_d, pk_d) = ([0x11u8; 32], [0x22u8; 32]);
 # let rho = zns_verify::base_from_bytes([0x33u8; 32]);
-# let on_chain_cmx = zns_verify::cmx_from_bytes(
+# let on_chain_cmx = zns_verify::base_from_bytes(
 #     <[u8; 32]>::try_from(
 #         hex::decode("53accd0df1c569731e8ad4fc8bcb483b953e3713ecc7a95202442daa026c4a02").unwrap(),
 #     )

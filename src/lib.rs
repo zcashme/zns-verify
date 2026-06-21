@@ -9,9 +9,6 @@ pub mod commitment;
 pub mod memo;
 pub mod verify;
 
-// Feature-gated relaxed trial decryption. Declared as a top-level module
-// (rather than nested inside verify) because it is a substantial, self-
-// contained unit that pulls in heavy optional dependencies.
 #[cfg(feature = "decrypt")]
 pub mod decrypt;
 
@@ -41,7 +38,3 @@ pub use pasta_curves::pallas;
 pub fn base_from_bytes(bytes: [u8; 32]) -> pallas::Base {
     Option::from(pallas::Base::from_repr(bytes)).expect("invalid Pallas base field element")
 }
-
-/// Convenience alias for `base_from_bytes` when you are constructing
-/// the on-chain `cmx` value.
-pub use base_from_bytes as cmx_from_bytes;

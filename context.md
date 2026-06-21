@@ -201,7 +201,7 @@ try_compact_orchard and try_decrypt_orchard with their reimplementation details 
 
 ### 5.9 Reexports and helpers (lines 1158-1186)
 
-Curated reexports, reexport of pallas and PrimeField, base_from_bytes and its alias (documented as for vectors and allowed to panic), final pub use of verify_name_note.
+Curated reexports, reexport of pallas and PrimeField, base_from_bytes, final pub use of verify_name_note.
 
 ---
 
@@ -539,20 +539,7 @@ The comment "the commitment rule is the caller's job" appears in both places.
 
 The ciphers are pinned because even a minor difference in keystream or tag verification would mean that a Name Note that one scanner can find, another cannot, even though the binding itself would still be verifiable later.
 
-M.8 Additional Notes on base_from_bytes and Its Panic
-
-The function is documented as:
-
-/// This is intended for test vectors and known-good constants. It will
-/// panic if the bytes are not a valid field element.
-
-It is re-exported under the name cmx_from_bytes for the common case of constructing the expected cmx in tests.
-
-It is allowed to panic because it is only used in test and vector code. Production code that constructs rho or cmx values from bytes is expected to handle errors itself.
-
-A port should probably provide an equivalent that returns Option or Result for production use, while still matching the panic behavior for the test vector helpers if they want to run the same tests.
-
-M.9 Additional Notes on the Three Independent Copies Risk
+M.8 Additional Notes on the Three Independent Copies Risk
 
 The security review plan explicitly lists:
 
@@ -564,7 +551,7 @@ The plan also notes that at the time of writing, zns-mint did not appear to call
 
 Any complete assurance argument for the overall ZNS system must include differential testing or formal equivalence between all copies.
 
-M.10 Additional Notes on the Domain Tag Open Question
+M.9 Additional Notes on the Domain Tag Open Question
 
 In hash.rs:
 
@@ -578,7 +565,7 @@ This is not a minor string difference. Because the domain tag is the very first 
 
 Until this is resolved, anyone maintaining vectors or ports must be aware that there is an unresolved discrepancy with at least one referenced design document.
 
-M.11 Additional Notes on the "Historic Divergence" Comment
+M.10 Additional Notes on the "Historic Divergence" Comment
 
 In the strict_field_counts test:
 
@@ -590,7 +577,7 @@ This is one of the most important historical comments in the crate. It tells you
 
 The parser was written (and is maintained) to make that class of bug impossible going forward.
 
-M.12 Additional Notes on the 9-Argument Function Decision
+M.11 Additional Notes on the 9-Argument Function Decision
 
 PRAGMATISM.md says:
 
@@ -604,7 +591,7 @@ In the verify module comment:
 
 The kernel deliberately exposes the raw surface that the protocol actually uses. Wrapping it would make ports and cross-checks harder, not easier.
 
-M.13 Additional Notes on ZIP-302 Zero Padding
+M.12 Additional Notes on ZIP-302 Zero Padding
 
 Memos are always 512 bytes. The actual content is left-justified and the rest is zero.
 
@@ -619,13 +606,13 @@ Encoding always produces a full 512-byte array with trailing zeros.
 
 Any implementation that trims differently, or that includes the padding in the string, or that treats internal zeros specially, will fail to round-trip or will mis-parse.
 
-M.14 Additional Notes on the Value Field Usually Being Zero
+M.13 Additional Notes on the Value Field Usually Being Zero
 
 Name Notes are typically zero-value notes (self-sends or near-self-sends) so that the owner can discover them when scanning with their IVK.
 
 The commitment construction still includes the value (as 64-bit LE) because that is what the Orchard note commitment does. Even if value is zero in practice, it is part of the message and must be supplied correctly to verify_name_note.
 
-M.15 Additional Notes on the Interaction Between verify_name_note and prev_rcm_for
+M.14 Additional Notes on the Interaction Between verify_name_note and prev_rcm_for
 
 verify_name_note is per-note. It does not know about the name's history.
 
@@ -637,7 +624,7 @@ Correct admission of a new note almost always requires both:
 
 If you only do one, you can accept illegal double-mints or reject legal extensions.
 
-M.16 Additional Notes on the Challenge/Confirm Flow
+M.15 Additional Notes on the Challenge/Confirm Flow
 
 The grammar includes:
 
@@ -648,7 +635,7 @@ These are for an OTP-style authorization of mutations. They are parsed by the sa
 
 A complete system will need rules about when these are accepted and how they interact with the lifecycle actions.
 
-M.17 Additional Notes on the "Recompute, Don't Trust" Phrase
+M.16 Additional Notes on the "Recompute, Don't Trust" Phrase
 
 The phrase appears in PRAGMATISM.md and in the verify module doc comment.
 
@@ -658,7 +645,7 @@ It means: take the fields that claim to be the binding, run the math yourself, s
 
 This is why the kernel can be used by people who do not trust the mint for anything except "it decided to create this note".
 
-M.18 Additional Notes on the Role of the Disclosed prev_rcm
+M.17 Additional Notes on the Role of the Disclosed prev_rcm
 
 Because prev_rcm is an input to the hash that produced the rcm that went into the note commitment, including the prev_rcm value in the memo lets a verifier check a single note in isolation.
 
@@ -666,7 +653,7 @@ Without the disclosed witness, a verifier would need the entire preceding chain 
 
 The disclosure enables the tail-scan backstop and single-note fraud proofs mentioned in the memo module comment (DESIGN.md references).
 
-M.19 Additional Notes on the No Em-Dashes Rule (Recent Addition)
+M.18 Additional Notes on the No Em-Dashes Rule (Recent Addition)
 
 After the conversation about pragmatism, a new absolute rule was added to PRAGMATISM.md and this document:
 
@@ -678,7 +665,7 @@ Rationale: copy-paste safety, terminal rendering, grep reliability, diff cleanli
 
 This file itself was cleaned to obey the rule.
 
-M.20 Final Reminder on Scope
+M.19 Final Reminder on Scope
 
 This entire document is derived only from material present in the zns-verify workspace at the time of its creation. References to DESIGN.md, the whitepaper, zns-mint, zns-resolver, zns-orchard, and the slash contract are only as deep as the references that appear in the reviewed files.
 
