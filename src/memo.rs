@@ -180,10 +180,6 @@ fn parse_zns_common(raw: &[u8]) -> Result<(&str, &str, Option<&str>, Option<[u8;
 /// This is the preferred API for verification: it returns a structured `NameNote`
 /// with a guaranteed `prev_rcm` instead of an `Option`.
 pub fn parse_name_note(raw: &[u8]) -> Result<NameNote<'_>, MemoError> {
-    parse_name_note_inner(raw)
-}
-
-fn parse_name_note_inner(raw: &[u8]) -> Result<NameNote<'_>, MemoError> {
     let (verb, name, arg, prev_rcm) = parse_zns_common(raw)?;
     let prev_rcm = prev_rcm.ok_or(MemoError::FieldCount)?;
 
