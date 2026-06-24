@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `memo::encode_request` and `memo::encode_name_note` share a single
+  `classify_action(action, ua)` helper for the Release-must-have-empty-ua /
+  Claim-and-Update-must-have-non-empty-ua policy. The two encoders can no
+  longer drift apart on the policy check; one call site, one audit. No
+  change to any emitted or accepted memo bytes.
+
 ## [0.0.1] - 2026-06-21
 
 Initial verification kernel. Default build is `no_std`, `forbid(unsafe_code)`,
