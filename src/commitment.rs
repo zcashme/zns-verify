@@ -46,15 +46,22 @@ fn tagged_zns_hash(
     prev_rcm: &[u8; 32],
 ) -> [u8; 64] {
     let mut h = Params::new().hash_length(64).to_state();
-    let mut absorb_with_length_prefix = |b: &[u8]| {
-        h.update(&(b.len() as u32).to_le_bytes());
-        h.update(b);
-    };
-    absorb_with_length_prefix(ZNS_DOMAIN_TAG);
-    absorb_with_length_prefix(field_tag);
-    absorb_with_length_prefix(action);
-    absorb_with_length_prefix(name);
-    absorb_with_length_prefix(ua);
+    // Length-prefixed absorb: domain separation tag, field tag, then the
+    // binding tuple. Each field is written as a 4-byte little-endian length
+    // followed by the payload bytes, in this fixed order. Two `update`
+    // calls per field, in source order, so the on-wire hash input layout
+    // is readable straight off the source (see D1 in docs/code_review.md).
+    h.update(&(ZNS_DOMAIN_TAG.len() as u32).to_le_bytes());
+    h.update(ZNS_DOMAIN_TAG);
+    h.update(&(field_tag.len() as u32).to_le_bytes());
+    h.update(field_tag);
+    h.update(&(action.len() as u32).to_le_bytes());
+    h.update(action);
+    h.update(&(name.len() as u32).to_le_bytes());
+    h.update(name);
+    h.update(&(ua.len() as u32).to_le_bytes());
+    h.update(ua);
+    // prev_rcm is a fixed 32-byte field, so no length prefix.
     h.update(prev_rcm);
     let mut out = [0u8; 64];
     out.copy_from_slice(h.finalize().as_bytes());
