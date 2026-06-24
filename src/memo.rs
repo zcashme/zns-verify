@@ -294,18 +294,30 @@ pub fn validate_name(name: &str) -> Result<(), MemoError> {
     Ok(())
 }
 
+/// Resolve an [`Action`] to its canonical ASCII verb, enforcing the
+/// per-action `ua` policy of the memo grammar:
+///
+/// - Release requires an empty `ua`;
+/// - Claim and Update require a non-empty `ua`.
+///
+/// Returning the verb on the happy path keeps the policy check in exactly
+/// one place so the request and name-note encoders cannot drift apart.
+fn classify_action(action: Action, ua: &str) -> Result<&'static str, MemoError> {
+    match action {
+        Action::Release if !ua.is_empty() => Err(MemoError::FieldCount),
+        Action::Claim | Action::Update if ua.is_empty() => Err(MemoError::EmptyArg),
+        Action::Claim => Ok("claim"),
+        Action::Update => Ok("update"),
+        Action::Release => Ok("release"),
+    }
+}
+
 /// Encode a lifecycle *request* memo (user → registry), zero-padded to
 /// [`MEMO_SIZE`]. It round-trips through the strict grammar parser by construction.
 /// RELEASE requires an empty `ua`.
 pub fn encode_request(action: Action, name: &str, ua: &str) -> Result<[u8; MEMO_SIZE], MemoError> {
     validate_name(name)?;
-    let verb = match action {
-        Action::Release if !ua.is_empty() => return Err(MemoError::FieldCount),
-        Action::Claim | Action::Update if ua.is_empty() => return Err(MemoError::EmptyArg),
-        Action::Claim => "claim",
-        Action::Update => "update",
-        Action::Release => "release",
-    };
+    let verb = classify_action(action, ua)?;
     match action {
         Action::Release => encode(&["ZNS", verb, name]),
         _ => encode(&["ZNS", verb, name, ua]),
@@ -323,13 +335,7 @@ pub fn encode_name_note(
     prev_rcm: &[u8; 32],
 ) -> Result<[u8; MEMO_SIZE], MemoError> {
     validate_name(name)?;
-    let verb = match action {
-        Action::Release if !ua.is_empty() => return Err(MemoError::FieldCount),
-        Action::Claim | Action::Update if ua.is_empty() => return Err(MemoError::EmptyArg),
-        Action::Claim => "claim",
-        Action::Update => "update",
-        Action::Release => "release",
-    };
+    let verb = classify_action(action, ua)?;
     let mut hex = [0u8; 64];
     for (i, b) in prev_rcm.iter().enumerate() {
         const DIGITS: &[u8; 16] = b"0123456789abcdef";

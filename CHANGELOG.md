@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `commitment::tagged_zns_hash` inlines the length-prefixed absorb steps as
+  five explicit `(to_le_bytes(len); State::update(len); State::update(bytes))`
+  pairs instead of routing through a single closure. Same byte input to
+  BLAKE2b, same `(psi, rcm)` outputs, same cross-language vectors pass -- the
+  on-wire hash layout is now readable straight off the source (relevant to
+  the D1 byte-stability invariant audited in `docs/code_review.md`).
+- `memo::encode_request` and `memo::encode_name_note` share a single
+  `classify_action(action, ua)` helper for the Release-must-have-empty-ua /
+  Claim-and-Update-must-have-non-empty-ua policy. The two encoders can no
+  longer drift apart on the policy check; one call site, one audit. No
+  change to any emitted or accepted memo bytes.
+
 ## [0.0.1] - 2026-06-21
 
 Initial verification kernel. Default build is `no_std`, `forbid(unsafe_code)`,
