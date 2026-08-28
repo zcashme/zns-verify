@@ -8,13 +8,13 @@ Use the content of PRAGMATISM.md (or the principles below) when writing, reviewi
 
 zns-verify is the ZcashName (ZNS) verification kernel -- the minimal primitive the trust model rests on.
 
-A ZcashName binding lives inside a Name Note's commitment. Its (rcm, psi) are a deterministic hash of (action, name, ua, prev_rcm), and the chain commits to that hash through the note's cmx. This crate recomputes the commitment from the note's fields and compares it to the on-chain cmx. Match: the (name to ua) binding is real. No match: it is not. You reach that conclusion without trusting any registry, resolver, or indexer.
+A ZcashName binding lives inside a Name Note's commitment. Its (rcm, psi) are a deterministic hash of (action, name, ua, expires_at, prev_rcm), and the chain commits to that hash through the note's cmx. This crate recomputes the commitment from the note's fields and compares it to the on-chain cmx. Match: the (name to ua) binding is real. No match: it is not. You reach that conclusion without trusting any registry, resolver, or indexer.
 
 That is the entire point. Resolution can come from anywhere, because anyone can check the answer here.
 
 ### What the crate provides
 
-- `zns_psi_rcm(action, name, ua, prev_rcm) -> (psi, rcm)` -- re-derive the deterministic commitment randomness.
+- `zns_psi_rcm(action, name, ua, expires_at, prev_rcm) -> (psi, rcm)` -- re-derive the deterministic commitment randomness.
 - `note_commitment_cmx(...)` -- recompute the Sinsemilla note commitment.
 - `verify_name_note(...)` -- both at once: recompute and compare against cmx, returning a plain bool.
 - `memo::parse_memo` / `memo::encode_*` -- the canonical ZNS memo grammar. One strict parser shared by registry, resolver, and slash contract. Agreement is by construction.
@@ -43,12 +43,12 @@ Auditability, determinism, and minimality are the product. "Looks nice in Rust" 
 
 2. **Protocol fidelity over Rust idioms**  
    - Length-prefixed BLAKE2b construction is required for collision resistance across languages. Do not "make it nicer" with serde or higher-level combinators if they change the wire or hash bytes.
-   - The memo grammar is **strict** by design. Exact field counts, positional empty `ua` for RELEASE, lowercase hex only for `prev_rcm`. A lenient parser would let implementations drift. This parser is the single source of truth so that "agreement is by construction rather than by review."
+   - The memo grammar is **strict** by design. Exact field counts (six fields for Name Notes), positional fields, RELEASE retains the released UA and must encode `none` for `expires_at`, lowercase hex only for `prev_rcm`. A lenient parser would let implementations drift. This parser is the single source of truth so that "agreement is by construction rather than by review."
    - DNS label rules for names are exact (1-63 bytes, `a-z0-9-`, no leading or trailing hyphen). Do not relax or add "helpful" normalization.
    - Cross-language test vectors in `tests/vectors.rs` are sacred. Existing vectors never change. They are the interop contract.
 
 3. **Recompute, don't trust**  
-   `verify_name_note` is the capstone: it re-derives `(psi, rcm)` from `(action, name, ua, prev_rcm)` and recomputes the Sinsemilla `cmx`. The entire point is that the caller does not have to believe any external party.
+   `verify_name_note` is the capstone: it re-derives `(psi, rcm)` from `(action, name, ua, expires_at, prev_rcm)` and recomputes the Sinsemilla `cmx`. The entire point is that the caller does not have to believe any external party.
 
 4. **One copy of the state machine**  
    `memo::prev_rcm_for` (re-exported at crate root) *is* the protocol rule. There must be exactly one implementation that registry minter, resolver, and verifier all use identically.
@@ -90,7 +90,7 @@ When considering a change, ask:
 - Using `sinsemilla` + `pasta_curves` directly instead of `orchard::NoteCommitment` (removes a massive dependency for verifiers).
 - Pinning chacha20 / chacha20poly1305 versions to match `zcash_note_encryption` internals byte-for-byte inside the `decrypt` feature.
 - Keeping the `Action` enum as a simple exhaustive match rather than a fancy newtype or stringly-typed thing.
-- Accepting that `verify_name_note` has 9 arguments because that is the exact set a wallet holds after decrypting a note and parsing its memo.
+- Accepting that `verify_name_note` has 10 arguments because that is the exact set a wallet holds after decrypting a note and parsing its memo.
 - Writing the obvious loop for hex decoding instead of pulling in another crate.
 
 ## Anti-Patterns to Reject

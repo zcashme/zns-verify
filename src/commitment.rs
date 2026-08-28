@@ -114,3 +114,48 @@ pub fn note_commitment_cmx(
 
     Option::<NoteCommitment>::from(domain.short_commit(bits, &rcm))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::base_from_bytes;
+
+    /// WP §3.5 conformance: the whitepaper's golden vector.
+    /// Inputs: all-zero seed, account m/32'/133'/1', diversifier 0, external, mainnet.
+    /// value=0, rho=[0x33;32], expires_at=none, prev_rcm=zeroes.
+    #[test]
+    fn wp_section_3_5_golden_vector() {
+        let g_d: [u8; 32] =
+            hex::decode("de4338f2ab9fd8300a3a1c20dd690ce27026c6001c295d7c641a067ce809b11e")
+                .unwrap()
+                .try_into()
+                .unwrap();
+        let pk_d: [u8; 32] =
+            hex::decode("6df609f5710f3b5deecd4ee4b8f0173b44af6cf8918ac00269526031ba628996")
+                .unwrap()
+                .try_into()
+                .unwrap();
+        let rho = base_from_bytes([0x33u8; 32]);
+        let ua = b"u1897y9pzw3zk6n9twtzu2z5kpkzw3hms2c54fpyv8lnr79m73tazljkk3veaxrtwncp66lf45p3f274xy2amqckx0sraje4v835yw8q0q";
+
+        let (psi, rcm) = zns_psi_rcm(b"claim", b"alice", ua, b"none", &[0u8; 32]);
+
+        assert_eq!(
+            hex::encode(psi.to_repr()),
+            "9f8a61b860c737d4564f12c635d654b843bc7115d9dc6cf6f09e409c81b8d13e",
+            "WP §3.5 psi mismatch"
+        );
+        assert_eq!(
+            hex::encode(rcm.to_repr()),
+            "daa928be21d0ec13b5dbb0244699dbfeba546c71591d24d7824db78e4670c504",
+            "WP §3.5 rcm mismatch"
+        );
+
+        let cmx = note_commitment_cmx(g_d, pk_d, 0, rho, psi, rcm).unwrap();
+        assert_eq!(
+            hex::encode(cmx.to_repr()),
+            "cc320736a0c1df1e4ffcee2b64aa73a9e6d06bb218e155a6fef422e1ecb1f70c",
+            "WP §3.5 cmx mismatch"
+        );
+    }
+}
