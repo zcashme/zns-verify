@@ -23,26 +23,33 @@ const TAG_PSI: &[u8] = b"psi";
 const TAG_RCM: &[u8] = b"rcm";
 
 /// Derive `(ψ, rcm)` from a ZNS registration tuple.
+///
+/// The tuple is σ = (α, n, u, e, p) per WP §3.2, where `e` is the
+/// `expires_at` field bytes (canonical decimal or `none`).
 pub fn zns_psi_rcm(
     action: &[u8],
     name: &[u8],
     ua: &[u8],
+    expires_at: &[u8],
     prev_rcm: &[u8; 32],
 ) -> (pallas::Base, pallas::Scalar) {
     let psi =
-        pallas::Base::from_uniform_bytes(&tagged_zns_hash(TAG_PSI, action, name, ua, prev_rcm));
+        pallas::Base::from_uniform_bytes(&tagged_zns_hash(TAG_PSI, action, name, ua, expires_at, prev_rcm));
     let rcm =
-        pallas::Scalar::from_uniform_bytes(&tagged_zns_hash(TAG_RCM, action, name, ua, prev_rcm));
+        pallas::Scalar::from_uniform_bytes(&tagged_zns_hash(TAG_RCM, action, name, ua, expires_at, prev_rcm));
     (psi, rcm)
 }
 
 /// Compute the domain-tagged, length-prefixed BLAKE2b-512 hash that backs
-/// both `(ψ, rcm)` derivations.
+/// both `(ψ, rcm)` derivations (WP §3.3).
+///
+/// Field order: `LP(T) ∥ LP(t) ∥ LP(α) ∥ LP(n) ∥ LP(u) ∥ LP(e) ∥ p`.
 fn tagged_zns_hash(
     field_tag: &[u8],
     action: &[u8],
     name: &[u8],
     ua: &[u8],
+    expires_at: &[u8],
     prev_rcm: &[u8; 32],
 ) -> [u8; 64] {
     let mut h = Params::new().hash_length(64).to_state();
@@ -55,6 +62,7 @@ fn tagged_zns_hash(
     absorb_with_length_prefix(action);
     absorb_with_length_prefix(name);
     absorb_with_length_prefix(ua);
+    absorb_with_length_prefix(expires_at);
     h.update(prev_rcm);
     let mut out = [0u8; 64];
     out.copy_from_slice(h.finalize().as_bytes());

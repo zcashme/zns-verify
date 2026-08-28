@@ -34,7 +34,7 @@ Name Notes must be in the Ironwood pool.
 
 ## What it does
 
-- `zns_psi_rcm(action, name, ua, prev_rcm) -> (ψ, rcm)` -- re-derive the
+- `zns_psi_rcm(action, name, ua, expires_at, prev_rcm) -> (ψ, rcm)` -- re-derive the
   deterministic commitment randomness.
 - `note_commitment_cmx(...)` -- recompute the Sinsemilla note commitment.
 - `verify_name_note(...)` -- both at once: recompute and compare against `cmx`,
@@ -103,18 +103,19 @@ let (action, name, ua) = parse_claim_memo(b"ZNS:claim:alice:u1xxx")?;
 let (action, name, ua) = parse_update_memo(b"ZNS:update:alice:u1new")?;
 let (action, name, ua) = parse_release_memo(b"ZNS:release:alice")?;
 let ok = verify_name_note(
-    action, name, ua, &ZERO_PREV_RCM,
+    action, name, ua, b"none", &ZERO_PREV_RCM,
     g_d, pk_d, 0, rho, on_chain_cmx,
 );
 
 // Name Note memo (from on chain)
 let note = parse_name_note(
-    b"ZNS:claim:alice:u1xxx:0000000000000000000000000000000000000000000000000000000000000000"
+    b"ZNS:claim:alice:u1xxx:none:0000000000000000000000000000000000000000000000000000000000000000"
 )?;
 let ok = verify_name_note(
     note.action.as_bytes(),
     note.name.as_bytes(),
     note.ua.as_bytes(),
+    note.expires_at.as_bytes(),
     &note.prev_rcm,
     g_d, pk_d, 0, rho, on_chain_cmx,
 );

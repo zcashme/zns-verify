@@ -7,7 +7,7 @@ use zns_verify::{base_from_bytes, pallas, verify_name_note};
 // to -- a non-circular end-to-end check.
 const G_D: [u8; 32] = [0x11u8; 32];
 const PK_D: [u8; 32] = [0x22u8; 32];
-const PINNED_CMX_HEX: &str = "53accd0df1c569731e8ad4fc8bcb483b953e3713ecc7a95202442daa026c4a02";
+const PINNED_CMX_HEX: &str = "e9dba3d63fd866ca2ce29e1a102b2e3ffd3816817e28d74a6969efc019226a0d";
 
 fn rho() -> pallas::Base {
     base_from_bytes([0x33u8; 32])
@@ -21,12 +21,13 @@ fn pinned_cmx() -> pallas::Base {
 
 #[test]
 fn matches_pinned_vector() {
-    // (claim, alice, u1xxx, 0) over the pinned note components reproduces
+    // (claim, alice, u1xxx, none, 0) over the pinned note components reproduces
     // the pinned `cmx`.
     assert!(verify_name_note(
         b"claim",
         b"alice",
         b"u1xxx",
+        b"none",
         &[0u8; 32],
         G_D,
         PK_D,
@@ -38,13 +39,11 @@ fn matches_pinned_vector() {
 
 #[test]
 fn rejects_tampered_ua() {
-    // Same on-chain `cmx`, but a different claimed `ua`. The verifier
-    // re-derives `(ψ, rcm)` from `ua`, so the recomputed `cmx` no longer
-    // matches -- the swap is caught.
     assert!(!verify_name_note(
         b"claim",
         b"alice",
         b"u1evil",
+        b"none",
         &[0u8; 32],
         G_D,
         PK_D,
@@ -56,11 +55,11 @@ fn rejects_tampered_ua() {
 
 #[test]
 fn rejects_tampered_name() {
-    // Likewise for a swapped name.
     assert!(!verify_name_note(
         b"claim",
         b"bob",
         b"u1xxx",
+        b"none",
         &[0u8; 32],
         G_D,
         PK_D,
@@ -76,6 +75,7 @@ fn rejects_tampered_action_and_prev_rcm() {
         b"update",
         b"alice",
         b"u1xxx",
+        b"none",
         &[0u8; 32],
         G_D,
         PK_D,
@@ -87,6 +87,7 @@ fn rejects_tampered_action_and_prev_rcm() {
         b"claim",
         b"alice",
         b"u1xxx",
+        b"none",
         &[1u8; 32],
         G_D,
         PK_D,
@@ -106,6 +107,7 @@ fn rejects_wrong_expected_cmx() {
         b"claim",
         b"alice",
         b"u1xxx",
+        b"none",
         &[0u8; 32],
         G_D,
         PK_D,
