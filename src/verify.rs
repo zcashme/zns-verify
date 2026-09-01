@@ -10,7 +10,7 @@ use crate::commitment::{note_commitment_cmx, zns_psi_rcm};
 /// `expected_cmx`. Returns `true` on match.
 ///
 /// `expires_at` is the raw memo field bytes (canonical decimal or `none`),
-/// included in the ZNS hash per WP §3.2–3.3.
+/// included in the ZNS hash per WP §3.2-3.3.
 #[allow(clippy::too_many_arguments)]
 pub fn verify_name_note(
     action: &[u8],
@@ -24,8 +24,19 @@ pub fn verify_name_note(
     rho: Rho,
     expected_cmx: NoteCommitment,
 ) -> bool {
-    verify_name_note_with_witness(action, name, ua, expires_at, prev_rcm, g_d, pk_d, value, rho, expected_cmx)
-        .is_some()
+    verify_name_note_with_witness(
+        action,
+        name,
+        ua,
+        expires_at,
+        prev_rcm,
+        g_d,
+        pk_d,
+        value,
+        rho,
+        expected_cmx,
+    )
+    .is_some()
 }
 
 /// Same as [`verify_name_note`] but returns the rederived `(psi, rcm)` witness
@@ -55,4 +66,3 @@ pub fn verify_name_note_with_witness(
     let cmx = note_commitment_cmx(g_d, pk_d, value, rho, psi, rcm)?;
     (cmx == expected_cmx).then_some((psi, rcm))
 }
-

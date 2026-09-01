@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Name Notes include `expires_at` in the memo and the ZNS hash (WP §3).
+  `zns_psi_rcm` / `verify_name_note` take `expires_at` as raw field bytes
+  (`none` or canonical decimal). Name Notes are six fields:
+  `ZNS:<verb>:<name>:<ua>:<expires_at>:<prev_rcm>`. RELEASE retains the
+  released UA and must encode `none`. Golden vectors and the WP §3.5 pin
+  are updated. This is a breaking API and interop change.
 - Name Notes are Ironwood-pool notes (ZIP 2005, NU6.3), not Orchard-pool
   notes. At NU6.3 the Orchard pool is frozen (cross-address transfers
   disabled, enforced by the circuit), so Name Notes must be in the Ironwood
@@ -29,9 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bumped `zcash_note_encryption` from `0.4` to `0.4.2` (required by
   `orchard` 0.15).
 
-The pure verification kernel (`commitment.rs`, `verify.rs`, `memo.rs`, test
-vectors) is unchanged -- the Sinsemilla note commitment and the ZNS BLAKE2b
-hash are pool-independent.
+The Ironwood pool rename does not change Sinsemilla note commitment
+math. The ZNS BLAKE2b hash *did* change: it now length-prefixes `expires_at`
+before the raw `prev_rcm` (WP §3.3).
 
 ## [0.0.1] - 2026-06-21
 

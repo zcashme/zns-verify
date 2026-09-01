@@ -33,10 +33,12 @@ pub fn zns_psi_rcm(
     expires_at: &[u8],
     prev_rcm: &[u8; 32],
 ) -> (pallas::Base, pallas::Scalar) {
-    let psi =
-        pallas::Base::from_uniform_bytes(&tagged_zns_hash(TAG_PSI, action, name, ua, expires_at, prev_rcm));
-    let rcm =
-        pallas::Scalar::from_uniform_bytes(&tagged_zns_hash(TAG_RCM, action, name, ua, expires_at, prev_rcm));
+    let psi = pallas::Base::from_uniform_bytes(&tagged_zns_hash(
+        TAG_PSI, action, name, ua, expires_at, prev_rcm,
+    ));
+    let rcm = pallas::Scalar::from_uniform_bytes(&tagged_zns_hash(
+        TAG_RCM, action, name, ua, expires_at, prev_rcm,
+    ));
     (psi, rcm)
 }
 

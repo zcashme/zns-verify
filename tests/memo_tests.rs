@@ -60,7 +60,13 @@ fn parses_name_note_forms() {
     let m = format!("ZNS:update:alice:u1new:1775000000:{hex}");
     assert_eq!(
         parse_name_note(m.as_bytes()),
-        Ok(name_note(Action::Update, "alice", "u1new", "1775000000", want)),
+        Ok(name_note(
+            Action::Update,
+            "alice",
+            "u1new",
+            "1775000000",
+            want
+        )),
     );
     // Release: retains UA, expires_at = none (WP §3.1)
     let m = format!("ZNS:release:alice:u1old:none:{hex}");
@@ -96,30 +102,18 @@ fn release_must_have_none_expiry() {
     let hex = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
     // Release with a non-none expires_at is rejected (WP §3.1)
     let m = format!("ZNS:release:alice:u1old:1000:{hex}");
-    assert_eq!(
-        parse_name_note(m.as_bytes()),
-        Err(MemoError::FieldCount)
-    );
+    assert_eq!(parse_name_note(m.as_bytes()), Err(MemoError::FieldCount));
 }
 
 #[test]
 fn request_parsers_reject_name_note_fields() {
     let hex = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
     let m = format!("ZNS:claim:alice:u1xxx:none:{hex}");
-    assert_eq!(
-        parse_claim_memo(m.as_bytes()),
-        Err(MemoError::FieldCount)
-    );
+    assert_eq!(parse_claim_memo(m.as_bytes()), Err(MemoError::FieldCount));
     let m = format!("ZNS:update:alice:u1new:none:{hex}");
-    assert_eq!(
-        parse_update_memo(m.as_bytes()),
-        Err(MemoError::FieldCount)
-    );
+    assert_eq!(parse_update_memo(m.as_bytes()), Err(MemoError::FieldCount));
     let m = format!("ZNS:release:alice:none:{hex}");
-    assert_eq!(
-        parse_release_memo(m.as_bytes()),
-        Err(MemoError::FieldCount)
-    );
+    assert_eq!(parse_release_memo(m.as_bytes()), Err(MemoError::FieldCount));
 }
 
 #[test]
@@ -132,8 +126,14 @@ fn zero_padding_is_stripped() {
 
 #[test]
 fn non_zns_memos_are_not_zns() {
-    assert_eq!(parse_claim_memo(b"just a payment note"), Err(MemoError::NotZns));
-    assert_eq!(parse_claim_memo(b"ZEC:claim:alice:u1"), Err(MemoError::NotZns));
+    assert_eq!(
+        parse_claim_memo(b"just a payment note"),
+        Err(MemoError::NotZns)
+    );
+    assert_eq!(
+        parse_claim_memo(b"ZEC:claim:alice:u1"),
+        Err(MemoError::NotZns)
+    );
     assert_eq!(parse_claim_memo(&[0u8; MEMO_SIZE]), Err(MemoError::NotZns));
     assert_eq!(parse_claim_memo(&[0xff, 0xfe]), Err(MemoError::NotZns));
 }
@@ -153,8 +153,14 @@ fn strict_field_counts() {
         parse_release_memo(b"ZNS:release:alice:"),
         Err(MemoError::FieldCount)
     );
-    assert_eq!(parse_claim_memo(b"ZNS:claim:alice"), Err(MemoError::EmptyArg));
-    assert_eq!(parse_claim_memo(b"ZNS:claim:alice:"), Err(MemoError::EmptyArg));
+    assert_eq!(
+        parse_claim_memo(b"ZNS:claim:alice"),
+        Err(MemoError::EmptyArg)
+    );
+    assert_eq!(
+        parse_claim_memo(b"ZNS:claim:alice:"),
+        Err(MemoError::EmptyArg)
+    );
     assert_eq!(parse_claim_memo(b"ZNS:claim"), Err(MemoError::FieldCount));
     assert_eq!(
         parse_claim_memo(b"ZNS:settle:alice:u1x"),
@@ -207,7 +213,13 @@ fn encode_round_trips() {
     let m = encode_name_note(Action::Claim, "alice", "u1new", "1775000000", &[0u8; 32]).unwrap();
     assert_eq!(
         parse_name_note(&m),
-        Ok(name_note(Action::Claim, "alice", "u1new", "1775000000", [0u8; 32]))
+        Ok(name_note(
+            Action::Claim,
+            "alice",
+            "u1new",
+            "1775000000",
+            [0u8; 32]
+        ))
     );
 }
 

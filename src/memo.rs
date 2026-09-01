@@ -366,9 +366,6 @@ pub fn encode_name_note(
     encode(&["ZNS", verb, name, ua, expires_at, hex])
 }
 
-
-
-
 /// Join `fields` with `:` into a zero-padded ZIP-302 memo.
 fn encode(fields: &[&str]) -> Result<[u8; MEMO_SIZE], MemoError> {
     let len = fields.iter().map(|f| f.len()).sum::<usize>() + fields.len() - 1;

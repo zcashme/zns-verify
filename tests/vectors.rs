@@ -1,6 +1,6 @@
 //! Cross-language test vectors for the `zns_psi_rcm` hash construction.
 
-use zns_verify::{base_from_bytes, note_commitment_cmx, PrimeField, zns_psi_rcm};
+use zns_verify::{base_from_bytes, note_commitment_cmx, zns_psi_rcm, PrimeField};
 
 struct Vector {
     label: &'static str,
