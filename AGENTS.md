@@ -107,7 +107,8 @@ When considering a change, ask:
 - Run `cargo test` for the default kernel.
 - Run `cargo test --features decrypt` when touching the decrypt path.
 - All vector tests and cmx pin tests must continue to pass. Existing vectors are immutable.
-- Run `cargo clippy --all-features` and `cargo doc --no-deps`.
+- Run `cargo clippy --all-targets --all-features -- -D warnings`, `cargo fmt --check`, and `cargo doc --no-deps --all-features`.
+- GitHub Actions (`.github/workflows/ci.yml`) runs those commands plus llvm-cov coverage (no percentage gate) on pull requests and pushes to `master`. A broken test or a new clippy warning fails the PR.
 - Changes that affect hash outputs or parsing must be accompanied by new vectors only when introducing a deliberate protocol version change (domain tag bump).
 
 ## When in Doubt
