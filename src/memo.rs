@@ -292,7 +292,8 @@ fn decode_prev_rcm(s: &str) -> Result<[u8; 32], MemoError> {
         _ => Err(MemoError::InvalidPrevRcm),
     };
     let mut out = [0u8; 32];
-    for (i, pair) in bytes.chunks_exact(2).enumerate() {
+    let (pairs, _) = bytes.as_chunks::<2>();
+    for (i, pair) in pairs.iter().enumerate() {
         out[i] = (nibble(pair[0])? << 4) | nibble(pair[1])?;
     }
     Ok(out)

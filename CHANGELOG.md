@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- GitHub Actions CI on pull requests and pushes to `master`: default and
+  `decrypt` tests, clippy `-D warnings`, rustfmt, `cargo doc --no-deps
+  --all-features`, and llvm-cov coverage artifacts (no percentage gate).
+
 ### Changed
 
 - Name Notes include `expires_at` in the memo and the ZNS hash (WP §3).
