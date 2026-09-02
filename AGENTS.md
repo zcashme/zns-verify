@@ -14,10 +14,15 @@ That is the entire point. Resolution can come from anywhere, because anyone can 
 
 ### What the crate provides
 
+The kernel covers **Name Notes only**: the on-chain memos that carry name
+transitions. Request memos (user -> Mint treasury intake) are a separate lane;
+their implementation lives in the mint, and they never enter the verification
+path.
+
 - `zns_psi_rcm(action, name, ua, expires_at, prev_rcm) -> (psi, rcm)` -- re-derive the deterministic commitment randomness.
 - `note_commitment_cmx(...)` -- recompute the Sinsemilla note commitment.
 - `verify_name_note(...)` -- both at once: recompute and compare against cmx, returning a plain bool.
-- `memo::parse_memo` / `memo::encode_*` -- the canonical ZNS memo grammar. One strict parser shared by registry, resolver, and slash contract. Agreement is by construction.
+- `NameNote::parse(&Memo)` / `note.encode()` -- the canonical Name Note memo grammar as a three-variant enum with validated field types (`Name`, `Expiry`, `PrevRcm`). One strict parser shared by registry, resolver, and slash contract. Agreement is by construction.
 - `memo::prev_rcm_for` -- the per-name transition rule: which prev_rcm an action must extend, given the name's tip.
 
 This kernel is the protocol's shared core -- the crypto plus the two pure rules every party must compute identically -- which lets it drop unchanged into a wallet, SDK, resolver, enclave, or embedded target.
@@ -33,7 +38,7 @@ Auditability, determinism, and minimality are the product. "Looks nice in Rust" 
 - `#![no_std]`
 - `#![forbid(unsafe_code)]`
 - `#![deny(missing_docs)]`
-- Default feature compiles **only** the pure verification kernel: `blake2b_simd`, `pasta_curves`, `sinsemilla`, `bitvec`, `group`.
+- Default feature compiles **only** the pure verification kernel: `blake2b_simd`, `pasta_curves`, `sinsemilla`, `group`.
 - The `decrypt` feature is **strictly opt-in**. It pulls orchard + ciphers + forces `std`. Never pull heavy Zcash crates into the default path.
 
 ## Architectural Principles
@@ -44,7 +49,7 @@ Auditability, determinism, and minimality are the product. "Looks nice in Rust" 
 2. **Protocol fidelity over Rust idioms**  
    - Length-prefixed BLAKE2b construction is required for collision resistance across languages. Do not "make it nicer" with serde or higher-level combinators if they change the wire or hash bytes.
    - The memo grammar is **strict** by design. Exact field counts (six fields for Name Notes), positional fields, RELEASE retains the released UA and must encode `none` for `expires_at`, lowercase hex only for `prev_rcm`. A lenient parser would let implementations drift. This parser is the single source of truth so that "agreement is by construction rather than by review."
-   - DNS label rules for names are exact (1-63 bytes, `a-z0-9-`, no leading or trailing hyphen). Do not relax or add "helpful" normalization.
+   - ZNS name rules are exact (1-63 bytes, `a-z0-9-`, no leading or trailing hyphen). Do not relax or add "helpful" normalization.
    - Cross-language test vectors in `tests/vectors.rs` are sacred. Existing vectors never change. They are the interop contract.
 
 3. **Recompute, don't trust**  
@@ -90,7 +95,7 @@ When considering a change, ask:
 - Using `sinsemilla` + `pasta_curves` directly instead of `orchard::NoteCommitment` (removes a massive dependency for verifiers).
 - Pinning chacha20 / chacha20poly1305 versions to match `zcash_note_encryption` internals byte-for-byte inside the `decrypt` feature.
 - Keeping the `Action` enum as a simple exhaustive match rather than a fancy newtype or stringly-typed thing.
-- Accepting that `verify_name_note` has 10 arguments because that is the exact set a wallet holds after decrypting a note and parsing its memo.
+- Accepting that `verify_name_note` takes the parsed `NameNote` plus the note components (`g_d`, `pk_d`, `value`, `rho`, `cmx`), because that is the exact set a scanner holds after decrypting a note.
 - Writing the obvious loop for hex decoding instead of pulling in another crate.
 
 ## Anti-Patterns to Reject

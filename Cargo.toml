@@ -1,6 +1,6 @@
 [package]
 name = "zns-verify"
-version = "0.0.2"
+version = "0.1.0"
 edition = "2021"
 description = "ZcashName (ZNS) hash, action, and memo primitives -- used by Registry minters and Resolvers"
 license = "MIT"

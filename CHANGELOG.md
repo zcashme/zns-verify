@@ -13,7 +13,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `decrypt` tests, clippy `-D warnings`, rustfmt, `cargo doc --no-deps
   --all-features`, and llvm-cov coverage artifacts (no percentage gate).
 
+### Removed
+
+- **Breaking:** the request-memo grammar (`parse_claim_memo`, `parse_update_memo`,
+  `parse_release_memo`, `encode_request`). Request memos are treasury intake
+  (user -> Mint) and never enter the verification path; their implementation
+  lives with the mint, the grammar's only consumer. The kernel now covers Name
+  Notes only.
+- **Breaking:** the free-function memo API. `NameNote::parse(&Memo)` and
+  `NameNote::encode()` replace `parse_name_note` / `encode_name_note`; parsing
+  is the only way to construct a `NameNote`.
+- **Breaking:** `base_from_bytes` and `validate_name` (replaced by the `Rho`,
+  `Cmx`, and `Name` constructors), and the `NoteCommitment`/`Rho` type aliases
+  (now newtypes; the extracted commitment is `ExtractedNoteCommitment`, named
+  as upstream).
+- `tests/vectors.rs` and `context.md`. The WP §3.5 golden vector remains as a
+  unit test in `src/commitment.rs`.
+
 ### Changed
+
+- **Breaking:** `NameNote` is a three-variant enum (`Claim` / `Update` /
+  `Release`) whose fields are validated domain types (`Name`, `Expiry`,
+  `PrevRcm`): a release has no expiry field and a claim has no predecessor
+  field, so those constraints are structural. `NameNote::parse(&Memo)` is the
+  only construction path from untrusted bytes, and it enforces canonical
+  ZIP-302 padding, canonical decimal `expires_at` (WP §3.1), 64-lowercase-hex
+  `prev_rcm`, and predecessor/action consistency.
+- **Breaking:** `verify_name_note(note: &NameNote, g_d, pk_d, value, rho, cmx)`
+  with `verify_name_note_with_witness` as the primitive returning the re-derived
+  `(ψ, rcm)` opening. `Rho` and `ExtractedNoteCommitment` are newtypes with
+  canonical codecs.
+- Added `subtle` as a dependency (constant-time equality on the commitment
+  type, matching upstream `ExtractedNoteCommitment`).
 
 - Name Notes include `expires_at` in the memo and the ZNS hash (WP §3).
   `zns_psi_rcm` / `verify_name_note` take `expires_at` as raw field bytes
