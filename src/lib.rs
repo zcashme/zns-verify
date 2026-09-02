@@ -16,20 +16,15 @@ pub mod decrypt;
 // ZNS Core Primitives
 // -----------------------------------------------------------------------------
 
-pub use memo::{
-    prev_rcm_for, Action, Expiry, Memo, MemoError, Name, NameNote, PrevRcm, Tip, ZERO_PREV_RCM,
+pub use memo::{prev_rcm_for, Action, Expiry, Memo, Name, NameNote, PrevRcm, Tip, ZERO_PREV_RCM};
+
+pub use commitment::{
+    note_commitment_cmx, zns_psi_rcm, ExtractedNoteCommitment, Rho, ZNS_DOMAIN_TAG,
 };
 
-pub use commitment::{note_commitment_cmx, zns_psi_rcm, NoteCommitment, Rho, ZNS_DOMAIN_TAG};
+pub use memo::MemoError;
 
-pub use verify::verify_name_note;
+pub use verify::{verify_name_note, verify_name_note_with_witness};
 
-// Curve and field types provided so callers don't need direct dependencies
-// on `pasta_curves` and `group` just to construct `rho` and `cmx`.
 pub use group::ff::PrimeField;
 pub use pasta_curves::pallas;
-
-/// Construct a Pallas base-field element from its 32-byte little-endian representation.
-pub fn base_from_bytes(bytes: [u8; 32]) -> pallas::Base {
-    Option::from(pallas::Base::from_repr(bytes)).expect("invalid Pallas base field element")
-}
