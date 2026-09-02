@@ -78,20 +78,21 @@ The canonical ZNS memo grammar -- one parser for every party.
 The grammar covers the ZNS memos that appear on chain:
 
 ```text
-ZNS:claim:<name>:<ua>                  lifecycle request (user → registry)
-ZNS:update:<name>:<ua>                 lifecycle request
-ZNS:release:<name>                     lifecycle request
-ZNS:claim:<name>:<ua>:<prev_rcm>       Name Note canonical form (registry mint)
-ZNS:update:<name>:<ua>:<prev_rcm>      Name Note canonical form
-ZNS:release:<name>::<prev_rcm>         Name Note canonical form (ua empty)
+ZNS:claim:<name>:<ua>                          lifecycle request (user → registry)
+ZNS:update:<name>:<ua>                         lifecycle request
+ZNS:release:<name>                             lifecycle request
+ZNS:claim:<name>:<ua>:<expires_at>:<prev_rcm>   Name Note canonical form (WP §3.1)
+ZNS:update:<name>:<ua>:<expires_at>:<prev_rcm>  Name Note canonical form
+ZNS:release:<name>:<ua>:none:<prev_rcm>          Name Note canonical form
 ```
 
 `<prev_rcm>` is 64 lowercase hex chars. It is the *witness* for note-local
 verification: the commitment already binds `prev_rcm` as a hash input, so
 disclosing it in the Name Note's memo lets any scanner verify a single note's
-binding without first reconstructing the name's whole chain. Fields stay
-positional in all forms: a RELEASE Name Note has an explicitly empty `ua`,
-so `prev_rcm` never shifts columns.
+binding without first reconstructing the name's whole chain. `<expires_at>`
+is canonical ASCII decimal or the exact bytes `none` (WP §3.1). A RELEASE
+MUST encode the released UA and exactly `none` for `expires_at`. Fields stay
+positional in all forms.
 
 The grammar is **strict**: exact field counts (extra or empty fields reject),
 and names follow the DNS-label rule (≤ [`MAX_NAME_LEN`] bytes of `a-z 0-9 -`,
@@ -109,14 +110,21 @@ pub const MAX_NAME_LEN: usize = 63;
 ///
 /// This is the only memo shape that carries a `prev_rcm` witness and can be
 /// directly used with `verify_name_note`.
+///
+/// The `expires_at` field is the raw ASCII bytes from the memo: canonical
+/// decimal for a fixed-term registration, or the exact bytes `none` for a
+/// registration without fixed expiration (WP §3.1). A RELEASE MUST encode
+/// `none` (WP §3.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NameNote<'a> {
     /// CLAIM, UPDATE, or RELEASE.
     pub action: Action,
     /// The name being acted on.
     pub name: &'a str,
-    /// The UA being bound (empty for RELEASE).
+    /// The UA being bound (the released UA for RELEASE; never empty).
     pub ua: &'a str,
+    /// The `expires_at` field: canonical decimal or `none`.
+    pub expires_at: &'a str,
     /// The disclosed `prev_rcm` witness from the on-chain Name Note.
     pub prev_rcm: [u8; 32],
 }
@@ -147,7 +155,12 @@ pub enum MemoError {
 /// Common logic for splitting a ZNS: memo into its fields.
 /// This is the single strict implementation of the grammar rules
 /// (field counts, name validation, prev_rcm hex decoding, etc.).
-fn parse_zns_memo_fields(raw: &[u8]) -> Result<(&str, &str, Option<&str>, Option<[u8; 32]>), MemoError> {
+///
+/// Returns `(verb, name, ua, expires_at, prev_rcm)` for Name Notes and
+/// `(verb, name, ua, None, None)` for request memos.
+fn parse_zns_memo_fields(
+    raw: &[u8],
+) -> Result<(&str, &str, Option<&str>, Option<&str>, Option<[u8; 32]>), MemoError> {
     let end = raw.iter().rposition(|b| *b != 0).map_or(0, |p| p + 1);
     let text = core::str::from_utf8(&raw[..end]).map_err(|_| MemoError::NotZns)?;
 
@@ -159,18 +172,25 @@ fn parse_zns_memo_fields(raw: &[u8]) -> Result<(&str, &str, Option<&str>, Option
     let name = fields.next().ok_or(MemoError::FieldCount)?;
     validate_name(name)?;
 
-    let (arg, fifth) = (fields.next(), fields.next());
+    let (arg, fifth, sixth) = (fields.next(), fields.next(), fields.next());
     if fields.next().is_some() {
         return Err(MemoError::FieldCount);
     }
-    let prev_rcm = fifth.map(decode_prev_rcm).transpose()?;
-    Ok((verb, name, arg, prev_rcm))
+    let prev_rcm = sixth.map(decode_prev_rcm).transpose()?;
+    Ok((verb, name, arg, fifth, prev_rcm))
 }
 
 /// Parse a committed Name Note (the on-chain form) into its fields.
+///
+/// The canonical form is six fields (WP §3.1):
+/// `ZNS:<verb>:<name>:<ua>:<expires_at>:<prev_rcm>`
+///
+/// A RELEASE must encode the released UA (not empty) and exactly `none`
+/// for `expires_at` (WP §3.1).
 pub fn parse_name_note(raw: &[u8]) -> Result<NameNote<'_>, MemoError> {
-    let (verb, name, arg, prev_rcm) = parse_zns_memo_fields(raw)?;
+    let (verb, name, ua, expires_at, prev_rcm) = parse_zns_memo_fields(raw)?;
     let prev_rcm = prev_rcm.ok_or(MemoError::FieldCount)?;
+    let expires_at = expires_at.ok_or(MemoError::FieldCount)?;
 
     fn required(arg: Option<&str>) -> Result<&str, MemoError> {
         match arg {
@@ -183,23 +203,26 @@ pub fn parse_name_note(raw: &[u8]) -> Result<NameNote<'_>, MemoError> {
         "claim" => Ok(NameNote {
             action: Action::Claim,
             name,
-            ua: required(arg)?,
+            ua: required(ua)?,
+            expires_at,
             prev_rcm,
         }),
         "update" => Ok(NameNote {
             action: Action::Update,
             name,
-            ua: required(arg)?,
+            ua: required(ua)?,
+            expires_at,
             prev_rcm,
         }),
         "release" => {
-            if arg != Some("") {
+            if expires_at != "none" {
                 return Err(MemoError::FieldCount);
             }
             Ok(NameNote {
                 action: Action::Release,
                 name,
-                ua: "",
+                ua: required(ua)?,
+                expires_at,
                 prev_rcm,
             })
         }
@@ -210,8 +233,8 @@ pub fn parse_name_note(raw: &[u8]) -> Result<NameNote<'_>, MemoError> {
 /// Parse a "claim" request memo (the user → registry form "ZNS:claim:<name>:<ua>").
 /// Returns (action, name, ua).
 pub fn parse_claim_memo(raw: &[u8]) -> Result<(&[u8], &[u8], &[u8]), MemoError> {
-    let (verb, name, arg, prev_rcm) = parse_zns_memo_fields(raw)?;
-    if prev_rcm.is_some() {
+    let (verb, name, arg, expires_at, prev_rcm) = parse_zns_memo_fields(raw)?;
+    if prev_rcm.is_some() || expires_at.is_some() {
         return Err(MemoError::FieldCount);
     }
     if verb != "claim" {
@@ -227,8 +250,8 @@ pub fn parse_claim_memo(raw: &[u8]) -> Result<(&[u8], &[u8], &[u8]), MemoError> 
 /// Parse an "update" request memo (the user → registry form "ZNS:update:<name>:<ua>").
 /// Returns (action, name, ua).
 pub fn parse_update_memo(raw: &[u8]) -> Result<(&[u8], &[u8], &[u8]), MemoError> {
-    let (verb, name, arg, prev_rcm) = parse_zns_memo_fields(raw)?;
-    if prev_rcm.is_some() {
+    let (verb, name, arg, expires_at, prev_rcm) = parse_zns_memo_fields(raw)?;
+    if prev_rcm.is_some() || expires_at.is_some() {
         return Err(MemoError::FieldCount);
     }
     if verb != "update" {
@@ -244,8 +267,8 @@ pub fn parse_update_memo(raw: &[u8]) -> Result<(&[u8], &[u8], &[u8]), MemoError>
 /// Parse a "release" request memo (the user → registry form "ZNS:release:<name>").
 /// Returns (action, name, ua) where ua is empty.
 pub fn parse_release_memo(raw: &[u8]) -> Result<(&[u8], &[u8], &[u8]), MemoError> {
-    let (verb, name, arg, prev_rcm) = parse_zns_memo_fields(raw)?;
-    if prev_rcm.is_some() {
+    let (verb, name, arg, expires_at, prev_rcm) = parse_zns_memo_fields(raw)?;
+    if prev_rcm.is_some() || expires_at.is_some() {
         return Err(MemoError::FieldCount);
     }
     if verb != "release" {
@@ -313,18 +336,21 @@ pub fn encode_request(action: Action, name: &str, ua: &str) -> Result<[u8; MEMO_
 }
 
 /// Encode a Name Note's canonical memo (registry mint), zero-padded to
-/// [`MEMO_SIZE`]: the request fields plus the `prev_rcm` witness that makes
-/// the note's binding verifiable standalone. RELEASE takes an empty `ua`
-/// (the field stays positional).
+/// [`MEMO_SIZE`]: the request fields plus `expires_at` and the `prev_rcm`
+/// witness that makes the note's binding verifiable standalone (WP §3.1).
+///
+/// A RELEASE must encode the released UA and exactly `none` for `expires_at`.
 pub fn encode_name_note(
     action: Action,
     name: &str,
     ua: &str,
+    expires_at: &str,
     prev_rcm: &[u8; 32],
 ) -> Result<[u8; MEMO_SIZE], MemoError> {
     validate_name(name)?;
     let verb = match action {
-        Action::Release if !ua.is_empty() => return Err(MemoError::FieldCount),
+        Action::Release if expires_at != "none" => return Err(MemoError::FieldCount),
+        Action::Release if ua.is_empty() => return Err(MemoError::EmptyArg),
         Action::Claim | Action::Update if ua.is_empty() => return Err(MemoError::EmptyArg),
         Action::Claim => "claim",
         Action::Update => "update",
@@ -337,11 +363,8 @@ pub fn encode_name_note(
         hex[2 * i + 1] = DIGITS[(b & 0xf) as usize];
     }
     let hex = core::str::from_utf8(&hex).expect("hex digits are ASCII");
-    encode(&["ZNS", verb, name, ua, hex])
+    encode(&["ZNS", verb, name, ua, expires_at, hex])
 }
-
-
-
 
 /// Join `fields` with `:` into a zero-padded ZIP-302 memo.
 fn encode(fields: &[&str]) -> Result<[u8; MEMO_SIZE], MemoError> {

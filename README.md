@@ -9,16 +9,32 @@ that hash through the note's `cmx`.
 The zns-verify crate recomputes the commitment from
 the note's fields and compares it to the on-chain `cmx`.
 
-## Why Standard Orchard Decryption Rejects Name Notes
+## Name Notes are Ironwood-pool notes
+
+Name Notes live in the Ironwood shielded pool (ZIP 2005, NU6.3), not the
+Orchard pool. Ironwood is an Orchard-protocol pool: it reuses the same Pallas
+curves, Sinsemilla commitments, Action encoding, and key components. The
+differences are at the state layer (separate note commitment tree, nullifier
+set, value pool) and in the note plaintext: Ironwood notes carry V3 plaintexts
+(lead byte `0x03`) rather than V2 (`0x02`).
+
+At NU6.3 the Orchard pool is frozen -- cross-address transfers are disabled
+(`enableCrossAddress` must be 0, enforced by the circuit). A ZNS registry mints
+Name Notes to users' addresses, which is inherently a cross-address transfer, so
+Name Notes must be in the Ironwood pool.
+
+## Why Standard Decryption Rejects Name Notes
 
 - Standard ZIP-212 derives `rcm` from `rseed` and checks the recomputed `cmx` against the on-chain value.
 - A Name Note's `rcm` comes from `zns_psi_rcm(action, name, ua, prev_rcm)`, not `rseed`.
 - So `zcash_note_encryption`'s `try_decrypt` returns `None` for every valid Name Note.
-- The `decrypt` feature skips the `cmx` check but keeps the AEAD authentication; binding integrity moves to `verify_name_note`.
+- The `decrypt` feature uses `IronwoodDomain` (accepts V3 lead byte `0x03`),
+  skips the `cmx` check, but keeps the AEAD authentication; binding integrity
+  moves to `verify_name_note`.
 
 ## What it does
 
-- `zns_psi_rcm(action, name, ua, prev_rcm) -> (ψ, rcm)` -- re-derive the
+- `zns_psi_rcm(action, name, ua, expires_at, prev_rcm) -> (ψ, rcm)` -- re-derive the
   deterministic commitment randomness.
 - `note_commitment_cmx(...)` -- recompute the Sinsemilla note commitment.
 - `verify_name_note(...)` -- both at once: recompute and compare against `cmx`,
@@ -38,9 +54,10 @@ unchanged into a wallet, SDK, resolver, enclave, or embedded target.
 - **Pure verification kernel** (default): `no_std`, no orchard, minimal math-only
   dependencies (`blake2b_simd`, `pasta_curves`, `sinsemilla`, `group`).
   Intended to be dropped into wallets, SDKs, enclaves, or embedded targets.
-- **`decrypt` feature** (opt-in): relaxed Orchard trial decryption that skips
-  the ZIP-212 `cmx` check. Useful for scanning Name Notes. Pulls `orchard` +
-  pinned ciphers and forces `std`.
+- **`decrypt` feature** (opt-in): relaxed Ironwood trial decryption that skips
+  the ZIP-212 `cmx` check. Uses `IronwoodDomain` (V3 note plaintexts, lead byte
+  `0x03`). Useful for scanning Name Notes. Pulls `orchard` + pinned ciphers and
+  forces `std`.
 - `NameNote<'a>` -- clean struct representing a committed on-chain Name Note
   (with guaranteed `prev_rcm` witness).
 - Full strict ZNS memo grammar with exact field counts, DNS-label name rules,
@@ -86,18 +103,19 @@ let (action, name, ua) = parse_claim_memo(b"ZNS:claim:alice:u1xxx")?;
 let (action, name, ua) = parse_update_memo(b"ZNS:update:alice:u1new")?;
 let (action, name, ua) = parse_release_memo(b"ZNS:release:alice")?;
 let ok = verify_name_note(
-    action, name, ua, &ZERO_PREV_RCM,
+    action, name, ua, b"none", &ZERO_PREV_RCM,
     g_d, pk_d, 0, rho, on_chain_cmx,
 );
 
 // Name Note memo (from on chain)
 let note = parse_name_note(
-    b"ZNS:claim:alice:u1xxx:0000000000000000000000000000000000000000000000000000000000000000"
+    b"ZNS:claim:alice:u1xxx:none:0000000000000000000000000000000000000000000000000000000000000000"
 )?;
 let ok = verify_name_note(
     note.action.as_bytes(),
     note.name.as_bytes(),
     note.ua.as_bytes(),
+    note.expires_at.as_bytes(),
     &note.prev_rcm,
     g_d, pk_d, 0, rho, on_chain_cmx,
 );

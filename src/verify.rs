@@ -8,11 +8,15 @@ use crate::commitment::{note_commitment_cmx, zns_psi_rcm};
 
 /// Verify that a Name Note's claimed fields, recipient, and value reproduce
 /// `expected_cmx`. Returns `true` on match.
+///
+/// `expires_at` is the raw memo field bytes (canonical decimal or `none`),
+/// included in the ZNS hash per WP §3.2-3.3.
 #[allow(clippy::too_many_arguments)]
 pub fn verify_name_note(
     action: &[u8],
     name: &[u8],
     ua: &[u8],
+    expires_at: &[u8],
     prev_rcm: &[u8; 32],
     g_d: [u8; 32],
     pk_d: [u8; 32],
@@ -20,8 +24,19 @@ pub fn verify_name_note(
     rho: Rho,
     expected_cmx: NoteCommitment,
 ) -> bool {
-    verify_name_note_with_witness(action, name, ua, prev_rcm, g_d, pk_d, value, rho, expected_cmx)
-        .is_some()
+    verify_name_note_with_witness(
+        action,
+        name,
+        ua,
+        expires_at,
+        prev_rcm,
+        g_d,
+        pk_d,
+        value,
+        rho,
+        expected_cmx,
+    )
+    .is_some()
 }
 
 /// Same as [`verify_name_note`] but returns the rederived `(psi, rcm)` witness
@@ -39,6 +54,7 @@ pub fn verify_name_note_with_witness(
     action: &[u8],
     name: &[u8],
     ua: &[u8],
+    expires_at: &[u8],
     prev_rcm: &[u8; 32],
     g_d: [u8; 32],
     pk_d: [u8; 32],
@@ -46,8 +62,7 @@ pub fn verify_name_note_with_witness(
     rho: Rho,
     expected_cmx: NoteCommitment,
 ) -> Option<(pallas::Base, pallas::Scalar)> {
-    let (psi, rcm) = zns_psi_rcm(action, name, ua, prev_rcm);
+    let (psi, rcm) = zns_psi_rcm(action, name, ua, expires_at, prev_rcm);
     let cmx = note_commitment_cmx(g_d, pk_d, value, rho, psi, rcm)?;
     (cmx == expected_cmx).then_some((psi, rcm))
 }
-

@@ -23,7 +23,7 @@ The kernel lets any party recompute the expected cmx from the claimed fields and
 - `src/memo.rs` - `Action`, chain rule (`Tip`, `prev_rcm_for`, `ZERO_PREV_RCM`), and the canonical memo parser/encoder (`parse_memo`, `parse_*_memo`, `encode_*`, `validate_name`).
 - `src/commitment.rs` - domain tag, BLAKE2b derivation of (psi, rcm), and Sinsemilla note commitment (`zns_psi_rcm`, `note_commitment_cmx`, `ZNS_DOMAIN_TAG`).
 - `src/verify.rs` - `verify_name_note` (the core binding check).
-- `src/decrypt.rs` - gated behind the `decrypt` feature; relaxed Orchard trial decryption (`try_*_orchard*` functions).
+- `src/decrypt.rs` - gated behind the `decrypt` feature; relaxed Ironwood trial decryption (`try_*_ironwood*` functions). Name Notes are Ironwood-pool notes (NU6.3, ZIP 2005) and use `IronwoodDomain`, which accepts V3 note plaintexts (lead byte `0x03`).
 
 Public API is reached primarily through the root re-exports.
 
@@ -145,9 +145,9 @@ The `decrypt` feature (Cargo.toml) adds `orchard`, `zcash_note_encryption`, `zca
 
 When enabled, the `decrypt` module provides:
 
-- `try_compact_orchard` - compact-block trial decryption without the normal ZIP-212 cmx reconstruction/check.
-- `try_decrypt_orchard` - full transaction trial decryption (still verifies the AEAD tag) that also returns the memo, again without the cmx validity check.
-- `try_decrypt_orchard_sent` - full transaction "sent" recovery via OVK (used for the self-send authorization check on name notes).
+- `try_compact_ironwood` - compact-block trial decryption without the normal ZIP-212 cmx reconstruction/check.
+- `try_decrypt_ironwood` - full transaction trial decryption (still verifies the AEAD tag) that also returns the memo, again without the cmx validity check.
+- `try_decrypt_ironwood_sent` - full transaction "sent" recovery via OVK (used for the self-send authorization check on name notes).
 
 All three are documented with the note that the commitment rule remains the caller's responsibility (via `verify_name_note`). The feature exists because Name Notes derive `(rcm, psi)` from the ZNS hash rather than from `rseed`, so standard Orchard decryption would discard them.
 

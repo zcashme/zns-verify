@@ -16,12 +16,14 @@ fn name_note<'a>(
     action: Action,
     name: &'a str,
     ua: &'a str,
+    expires_at: &'a str,
     prev_rcm: [u8; 32],
 ) -> NameNote<'a> {
     NameNote {
         action,
         name,
         ua,
+        expires_at,
         prev_rcm,
     }
 }
@@ -48,53 +50,70 @@ fn parses_name_note_forms() {
     let mut want = [0u8; 32];
     hex::decode_to_slice(hex, &mut want).unwrap();
 
-    let m = format!("ZNS:claim:alice:u1xxx:{hex}");
+    // Claim: 6 fields with expires_at (WP §3.1)
+    let m = format!("ZNS:claim:alice:u1xxx:none:{hex}");
     assert_eq!(
         parse_name_note(m.as_bytes()),
-        Ok(name_note(Action::Claim, "alice", "u1xxx", want)),
+        Ok(name_note(Action::Claim, "alice", "u1xxx", "none", want)),
     );
-    // RELEASE keeps `ua` positional (explicitly empty).
-    let m = format!("ZNS:release:alice::{hex}");
+    // Update with a fixed expiration
+    let m = format!("ZNS:update:alice:u1new:1775000000:{hex}");
     assert_eq!(
         parse_name_note(m.as_bytes()),
-        Ok(name_note(Action::Release, "alice", "", want))
+        Ok(name_note(
+            Action::Update,
+            "alice",
+            "u1new",
+            "1775000000",
+            want
+        )),
+    );
+    // Release: retains UA, expires_at = none (WP §3.1)
+    let m = format!("ZNS:release:alice:u1old:none:{hex}");
+    assert_eq!(
+        parse_name_note(m.as_bytes()),
+        Ok(name_note(Action::Release, "alice", "u1old", "none", want))
     );
 
     // The witness must be exactly 64 lowercase hex chars.
     assert_eq!(
-        parse_name_note(b"ZNS:claim:alice:u1xxx:abcd"),
+        parse_name_note(b"ZNS:claim:alice:u1xxx:none:abcd"),
         Err(MemoError::InvalidPrevRcm)
     );
-    let upper = format!("ZNS:claim:alice:u1xxx:{}", hex.to_uppercase());
+    let upper = format!("ZNS:claim:alice:u1xxx:none:{}", hex.to_uppercase());
     assert_eq!(
         parse_name_note(upper.as_bytes()),
         Err(MemoError::InvalidPrevRcm)
     );
-    // A request-form verb (no prev_rcm) is not a Name Note.
+    // A request-form verb (no expires_at/prev_rcm) is not a Name Note.
     assert_eq!(
         parse_name_note(b"ZNS:claim:alice:u1xxx"),
+        Err(MemoError::FieldCount)
+    );
+    // A Name Note without expires_at (5 fields) is rejected.
+    assert_eq!(
+        parse_name_note(b"ZNS:claim:alice:u1xxx:00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"),
         Err(MemoError::FieldCount)
     );
 }
 
 #[test]
-fn request_parsers_reject_prev_rcm() {
+fn release_must_have_none_expiry() {
     let hex = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
-    let m = format!("ZNS:claim:alice:u1xxx:{hex}");
-    assert_eq!(
-        parse_claim_memo(m.as_bytes()),
-        Err(MemoError::FieldCount)
-    );
-    let m = format!("ZNS:update:alice:u1new:{hex}");
-    assert_eq!(
-        parse_update_memo(m.as_bytes()),
-        Err(MemoError::FieldCount)
-    );
-    let m = format!("ZNS:release:alice::{hex}");
-    assert_eq!(
-        parse_release_memo(m.as_bytes()),
-        Err(MemoError::FieldCount)
-    );
+    // Release with a non-none expires_at is rejected (WP §3.1)
+    let m = format!("ZNS:release:alice:u1old:1000:{hex}");
+    assert_eq!(parse_name_note(m.as_bytes()), Err(MemoError::FieldCount));
+}
+
+#[test]
+fn request_parsers_reject_name_note_fields() {
+    let hex = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+    let m = format!("ZNS:claim:alice:u1xxx:none:{hex}");
+    assert_eq!(parse_claim_memo(m.as_bytes()), Err(MemoError::FieldCount));
+    let m = format!("ZNS:update:alice:u1new:none:{hex}");
+    assert_eq!(parse_update_memo(m.as_bytes()), Err(MemoError::FieldCount));
+    let m = format!("ZNS:release:alice:none:{hex}");
+    assert_eq!(parse_release_memo(m.as_bytes()), Err(MemoError::FieldCount));
 }
 
 #[test]
@@ -107,20 +126,23 @@ fn zero_padding_is_stripped() {
 
 #[test]
 fn non_zns_memos_are_not_zns() {
-    assert_eq!(parse_claim_memo(b"just a payment note"), Err(MemoError::NotZns));
-    assert_eq!(parse_claim_memo(b"ZEC:claim:alice:u1"), Err(MemoError::NotZns));
+    assert_eq!(
+        parse_claim_memo(b"just a payment note"),
+        Err(MemoError::NotZns)
+    );
+    assert_eq!(
+        parse_claim_memo(b"ZEC:claim:alice:u1"),
+        Err(MemoError::NotZns)
+    );
     assert_eq!(parse_claim_memo(&[0u8; MEMO_SIZE]), Err(MemoError::NotZns));
     assert_eq!(parse_claim_memo(&[0xff, 0xfe]), Err(MemoError::NotZns));
 }
 
 #[test]
 fn strict_field_counts() {
-    // The historic divergence this parser exists to kill: trailing fields
-    // must reject, never be absorbed into `ua` or silently ignored. (A
-    // fifth lifecycle field is legal only as a valid prev_rcm witness in
-    // parse_name_note.)
+    // A sixth field that is not valid prev_rcm hex must reject.
     assert_eq!(
-        parse_name_note(b"ZNS:update:alice:u1x:extra"),
+        parse_name_note(b"ZNS:update:alice:u1x:none:extra"),
         Err(MemoError::InvalidPrevRcm)
     );
     assert_eq!(
@@ -131,8 +153,14 @@ fn strict_field_counts() {
         parse_release_memo(b"ZNS:release:alice:"),
         Err(MemoError::FieldCount)
     );
-    assert_eq!(parse_claim_memo(b"ZNS:claim:alice"), Err(MemoError::EmptyArg));
-    assert_eq!(parse_claim_memo(b"ZNS:claim:alice:"), Err(MemoError::EmptyArg));
+    assert_eq!(
+        parse_claim_memo(b"ZNS:claim:alice"),
+        Err(MemoError::EmptyArg)
+    );
+    assert_eq!(
+        parse_claim_memo(b"ZNS:claim:alice:"),
+        Err(MemoError::EmptyArg)
+    );
     assert_eq!(parse_claim_memo(b"ZNS:claim"), Err(MemoError::FieldCount));
     assert_eq!(
         parse_claim_memo(b"ZNS:settle:alice:u1x"),
@@ -172,15 +200,26 @@ fn encode_round_trips() {
     );
 
     let prev = [0xa5u8; 32];
-    let m = encode_name_note(Action::Update, "alice", "u1new", &prev).unwrap();
+    let m = encode_name_note(Action::Update, "alice", "u1new", "none", &prev).unwrap();
     assert_eq!(
         parse_name_note(&m),
-        Ok(name_note(Action::Update, "alice", "u1new", prev))
+        Ok(name_note(Action::Update, "alice", "u1new", "none", prev))
     );
-    let m = encode_name_note(Action::Release, "alice", "", &prev).unwrap();
+    let m = encode_name_note(Action::Release, "alice", "u1old", "none", &prev).unwrap();
     assert_eq!(
         parse_name_note(&m),
-        Ok(name_note(Action::Release, "alice", "", prev))
+        Ok(name_note(Action::Release, "alice", "u1old", "none", prev))
+    );
+    let m = encode_name_note(Action::Claim, "alice", "u1new", "1775000000", &[0u8; 32]).unwrap();
+    assert_eq!(
+        parse_name_note(&m),
+        Ok(name_note(
+            Action::Claim,
+            "alice",
+            "u1new",
+            "1775000000",
+            [0u8; 32]
+        ))
     );
 }
 
@@ -199,7 +238,17 @@ fn encode_rejects_what_parse_rejects() {
         Err(MemoError::InvalidName)
     );
     assert_eq!(
-        encode_name_note(Action::Claim, "alice", "", &[0u8; 32]),
+        encode_name_note(Action::Claim, "alice", "", "none", &[0u8; 32]),
+        Err(MemoError::EmptyArg)
+    );
+    // Release must use "none" for expires_at
+    assert_eq!(
+        encode_name_note(Action::Release, "alice", "u1x", "1000", &[0u8; 32]),
+        Err(MemoError::FieldCount)
+    );
+    // Release must have a UA
+    assert_eq!(
+        encode_name_note(Action::Release, "alice", "", "none", &[0u8; 32]),
         Err(MemoError::EmptyArg)
     );
     // A ua that cannot fit the ZIP-302 memo.

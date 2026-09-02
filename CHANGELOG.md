@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Name Notes include `expires_at` in the memo and the ZNS hash (WP §3).
+  `zns_psi_rcm` / `verify_name_note` take `expires_at` as raw field bytes
+  (`none` or canonical decimal). Name Notes are six fields:
+  `ZNS:<verb>:<name>:<ua>:<expires_at>:<prev_rcm>`. RELEASE retains the
+  released UA and must encode `none`. Golden vectors and the WP §3.5 pin
+  are updated. This is a breaking API and interop change.
+- Name Notes are Ironwood-pool notes (ZIP 2005, NU6.3), not Orchard-pool
+  notes. At NU6.3 the Orchard pool is frozen (cross-address transfers
+  disabled, enforced by the circuit), so Name Notes must be in the Ironwood
+  pool. Ironwood is an Orchard-protocol pool: same Pallas curves, Sinsemilla
+  commitments, Action encoding, and keys -- the differences are separate state
+  (note commitment tree, nullifier set, value pool) and the note plaintext
+  version (V3, lead byte `0x03`, vs V2's `0x02`).
+- `decrypt` feature: swapped `OrchardDomain` for `IronwoodDomain`. The two
+  domains share identical key agreement, KDF, and AEAD; they differ only in
+  which note plaintext lead byte they accept (`0x03` vs `0x02`). Using
+  `OrchardDomain` would silently reject every Name Note because the V3 lead
+  byte would fail the domain's version check.
+- Renamed `try_compact_orchard` / `try_decrypt_orchard` /
+  `try_decrypt_orchard_sent` to `try_compact_ironwood` /
+  `try_decrypt_ironwood` / `try_decrypt_ironwood_sent`.
+- Bumped `orchard` dependency from `0.14` to `0.15` (introduces
+  `IronwoodDomain`, `NoteVersion`, `BundleVersion`).
+- Bumped `zcash_note_encryption` from `0.4` to `0.4.2` (required by
+  `orchard` 0.15).
+
+The Ironwood pool rename does not change Sinsemilla note commitment
+math. The ZNS BLAKE2b hash *did* change: it now length-prefixes `expires_at`
+before the raw `prev_rcm` (WP §3.3).
+
 ## [0.0.1] - 2026-06-21
 
 Initial verification kernel. Default build is `no_std`, `forbid(unsafe_code)`,
@@ -37,10 +69,11 @@ and depends only on `blake2b_simd`, `pasta_curves`, `sinsemilla`, and `group`.
 - `MemoError` -- C-like enum for all grammar violations.
 - `base_from_bytes` helper and `pallas` / `PrimeField` re-exports so callers
   can avoid direct curve dependencies.
-- `decrypt` feature (opt-in) -- relaxed Orchard trial decryption that skips
+- `decrypt` feature (opt-in) -- relaxed Ironwood trial decryption that skips
   the ZIP-212 `cmx` check but keeps ChaCha20-Poly1305 AEAD authentication
-  against IVK/OVK. `try_compact_orchard`, `try_decrypt_orchard`,
-  `try_decrypt_orchard_sent`. Pulls `orchard` + pinned ciphers and forces `std`.
+  against IVK/OVK. `try_compact_ironwood`, `try_decrypt_ironwood`,
+  `try_decrypt_ironwood_sent`. Uses `IronwoodDomain` (V3 note plaintexts, lead
+  byte `0x03`). Pulls `orchard` + pinned ciphers and forces `std`.
 - Cross-language test vectors for `(action, name, ua, prev_rcm) -> (ψ, rcm)`
   and pinned `cmx` values for claim, update, release, and long-name inputs
   (`tests/vectors.rs`).

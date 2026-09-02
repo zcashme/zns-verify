@@ -53,8 +53,7 @@ pub fn try_compact_ironwood(
     use zcash_note_encryption::{Domain, ShieldedOutput, COMPACT_NOTE_SIZE};
 
     let domain = IronwoodDomain::for_compact_action(action);
-    let ephemeral_key =
-        ShieldedOutput::<IronwoodDomain, COMPACT_NOTE_SIZE>::ephemeral_key(action);
+    let ephemeral_key = ShieldedOutput::<IronwoodDomain, COMPACT_NOTE_SIZE>::ephemeral_key(action);
     let epk = IronwoodDomain::prepare_epk(IronwoodDomain::epk(&ephemeral_key)?);
     let shared_secret = IronwoodDomain::ka_agree_dec(&ivk, &epk);
     let key = IronwoodDomain::kdf(shared_secret, &ephemeral_key);

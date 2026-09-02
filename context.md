@@ -197,7 +197,7 @@ Internal tests that demonstrate tampering is caught.
 
 Long module doc explaining the rseed vs deterministic hash mismatch.
 
-try_compact_orchard and try_decrypt_orchard with their reimplementation details and the repeated "NB: no check_note_validity" comments.
+try_compact_ironwood and try_decrypt_ironwood with their reimplementation details and the repeated "NB: no check_note_validity" comments.
 
 ### 5.9 Reexports and helpers (lines 1158-1186)
 
@@ -521,14 +521,14 @@ Any port must replicate exactly the same acceptance rules and error.
 
 M.7 Additional Notes on the Decrypt Reimplementation Details
 
-In try_compact_orchard:
+In try_compact_ironwood:
 
 - It uses ChaCha20 directly.
 - It seeks the keystream to 64 bytes (skipping the Poly1305 keying block).
 - It calls parse_note_plaintext_without_memo_ivk.
 - It never calls anything that would reconstruct cmx from rseed.
 
-In try_decrypt_orchard:
+In try_decrypt_ironwood:
 
 - It performs the full ChaCha20Poly1305 authenticated decrypt.
 - It still calls parse_note_plaintext_without_memo_ivk.
