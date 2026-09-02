@@ -21,10 +21,7 @@ pub use memo::{prev_rcm_for, Tip, ZERO_PREV_RCM};
 
 pub use commitment::{note_commitment_cmx, zns_psi_rcm, NoteCommitment, Rho, ZNS_DOMAIN_TAG};
 
-pub use memo::{
-    parse_claim_memo, parse_name_note, parse_release_memo, parse_update_memo, MemoError, NameNote,
-    MEMO_SIZE,
-};
+pub use memo::{parse_name_note, MemoError, NameNote, MEMO_SIZE};
 
 pub use verify::verify_name_note;
 

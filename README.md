@@ -1,10 +1,10 @@
 # zns-verify
 
-The ZcashName verification kernel turns Orchard commitments into a name system without adding any trust.
+The ZcashName verification kernel turns Ironwood note commitments into a name system without adding any trust.
 
 A ZcashName binding lives inside a Name Note's commitment whose `(rcm, ψ)` are a
-deterministic hash of `(action, name, ua, prev_rcm)` -- this leaves an on-chain record to
-that hash through the note's `cmx`. 
+deterministic hash of `(action, name, ua, expires_at, prev_rcm)` -- this leaves an on-chain record to
+that hash through the note's `cmx`.
 
 The zns-verify crate recomputes the commitment from
 the note's fields and compares it to the on-chain `cmx`.
@@ -19,14 +19,19 @@ set, value pool) and in the note plaintext: Ironwood notes carry V3 plaintexts
 (lead byte `0x03`) rather than V2 (`0x02`).
 
 At NU6.3 the Orchard pool is frozen -- cross-address transfers are disabled
-(`enableCrossAddress` must be 0, enforced by the circuit). A ZNS registry mints
-Name Notes to users' addresses, which is inherently a cross-address transfer, so
-Name Notes must be in the Ironwood pool.
+(`enableCrossAddress` must be 0, enforced by the circuit). Name Notes move
+between the Mint's own accounts (treasury -> registry), which is inherently a
+cross-address transfer, so Name Notes must be in the Ironwood pool.
+
+Name Notes are public record: they are minted to the Mint's registry account,
+and the Mint's full viewing key is published (WP §6) so any resolver can
+decrypt them. The bound user UA lives in the memo and the commitment, not in
+the note's recipient.
 
 ## Why Standard Decryption Rejects Name Notes
 
 - Standard ZIP-212 derives `rcm` from `rseed` and checks the recomputed `cmx` against the on-chain value.
-- A Name Note's `rcm` comes from `zns_psi_rcm(action, name, ua, prev_rcm)`, not `rseed`.
+- A Name Note's `rcm` comes from `zns_psi_rcm(action, name, ua, expires_at, prev_rcm)`, not `rseed`.
 - So `zcash_note_encryption`'s `try_decrypt` returns `None` for every valid Name Note.
 - The `decrypt` feature uses `IronwoodDomain` (accepts V3 lead byte `0x03`),
   skips the `cmx` check, but keeps the AEAD authentication; binding integrity
@@ -40,10 +45,11 @@ Name Notes must be in the Ironwood pool.
 - `verify_name_note(...)` -- both at once: recompute and compare against `cmx`,
   returning a plain `bool`.
 - `parse_name_note` -- parse a committed on-chain Name Note into a `NameNote`.
-- `parse_claim_memo` / `parse_update_memo` / `parse_release_memo` -- parse user request memos.
-- `encode_*` -- encoders for requests and Name Notes (round-trip with the parser).
+- `encode_name_note` -- encode a Name Note memo (round-trip with the parser).
 - `prev_rcm_for` -- the per-name transition rule: which `prev_rcm` an action must extend.
-- The canonical strict ZNS memo grammar (one parser for registry, resolver, etc.).
+- The canonical strict Name Note memo grammar (one parser for registry, resolver, etc.).
+- Out of scope: request memos (user -> Mint treasury intake). They are never
+  committed on chain and have no role in verification.
 
 This kernel is the protocol's shared core -- the crypto plus the two pure
 rules every party must compute identically -- which is what lets it drop
@@ -60,7 +66,7 @@ unchanged into a wallet, SDK, resolver, enclave, or embedded target.
   forces `std`.
 - `NameNote<'a>` -- clean struct representing a committed on-chain Name Note
   (with guaranteed `prev_rcm` witness).
-- Full strict ZNS memo grammar with exact field counts, DNS-label name rules,
+- Strict Name Note memo grammar with exact field counts, ZNS name rules,
   and 64-lowercase-hex `prev_rcm`.
 - `Action` enum and name validation (`validate_name`).
 - Lifecycle / chain rules (`prev_rcm_for`, `Tip`, `ZERO_PREV_RCM`).
@@ -82,10 +88,7 @@ and minimal dependencies. Production crates: `blake2b_simd`, `pasta_curves`,
 ## Usage
 
 ```rust
-use zns_verify::{
-    parse_claim_memo, parse_name_note, parse_release_memo, parse_update_memo, verify_name_note,
-    ZERO_PREV_RCM,
-};
+use zns_verify::{parse_name_note, verify_name_note, ZERO_PREV_RCM};
 
 # let (g_d, pk_d) = ([0x11u8; 32], [0x22u8; 32]);
 # let rho = zns_verify::base_from_bytes([0x33u8; 32]);
@@ -95,17 +98,6 @@ use zns_verify::{
 #     )
 #     .unwrap(),
 # );
-
-// Claim request memo (user → registry)
-let (action, name, ua) = parse_claim_memo(b"ZNS:claim:alice:u1xxx")?;
-
-// Similarly:
-let (action, name, ua) = parse_update_memo(b"ZNS:update:alice:u1new")?;
-let (action, name, ua) = parse_release_memo(b"ZNS:release:alice")?;
-let ok = verify_name_note(
-    action, name, ua, b"none", &ZERO_PREV_RCM,
-    g_d, pk_d, 0, rho, on_chain_cmx,
-);
 
 // Name Note memo (from on chain)
 let note = parse_name_note(
