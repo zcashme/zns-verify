@@ -88,9 +88,10 @@ and minimal dependencies. Production crates: `blake2b_simd`, `pasta_curves`,
 ## Usage
 
 ```rust
-use zns_verify::{parse_name_note, verify_name_note, ZERO_PREV_RCM};
+use zns_verify::{Memo, NameNote, verify_name_note};
 
-# let (g_d, pk_d) = ([0x11u8; 32], [0x22u8; 32]);
+# let g_d: [u8; 32] = [0x11u8; 32];
+# let pk_d: [u8; 32] = [0x22u8; 32];
 # let rho = zns_verify::base_from_bytes([0x33u8; 32]);
 # let on_chain_cmx = zns_verify::base_from_bytes(
 #     <[u8; 32]>::try_from(
@@ -100,15 +101,20 @@ use zns_verify::{parse_name_note, verify_name_note, ZERO_PREV_RCM};
 # );
 
 // Name Note memo (from on chain)
-let note = parse_name_note(
-    b"ZNS:claim:alice:u1xxx:none:0000000000000000000000000000000000000000000000000000000000000000"
+let memo = Memo::from_bytes(
+    b"ZNS:claim:alice:u1xxx:none:0000000000000000000000000000000000000000000000000000000000000000",
 )?;
+let note = NameNote::parse(&memo)?;
+let (prev_bytes, had_prev) = match note.prev_rcm() {
+    Some(p) => (*p.as_bytes(), true),
+    None => ([0u8; 32], false),
+};
 let ok = verify_name_note(
-    note.action.as_bytes(),
-    note.name.as_bytes(),
-    note.ua.as_bytes(),
-    note.expires_at.as_bytes(),
-    &note.prev_rcm,
+    note.action().as_bytes(),
+    note.name().as_str().as_bytes(),
+    note.ua().as_bytes(),
+    note.expires_at().map(|e| e.field_bytes().as_bytes()).unwrap_or(b"none"),
+    if had_prev { &prev_bytes } else { &[0u8; 32] },
     g_d, pk_d, 0, rho, on_chain_cmx,
 );
 
