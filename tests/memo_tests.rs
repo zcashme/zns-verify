@@ -1,9 +1,12 @@
 //! Tests for the memo grammar (parse_*_memo, parse_name_note, encode_*, validate_name).
 
 use zns_verify::{
-    memo::{encode_name_note, encode_request, validate_name, MemoError},
-    parse_claim_memo, parse_name_note, parse_release_memo, parse_update_memo, Action, NameNote,
-    MEMO_SIZE,
+    memo::{
+        encode_name_note, encode_request, encode_request_with_otp, validate_name, MemoError,
+        RequestMemo,
+    },
+    parse_claim_memo, parse_name_note, parse_release_memo, parse_request, parse_update_memo, Action,
+    NameNote, MEMO_SIZE,
 };
 
 fn padded(s: &str) -> [u8; MEMO_SIZE] {
@@ -31,16 +34,41 @@ fn name_note<'a>(
 #[test]
 fn parses_request_forms() {
     assert_eq!(
+        parse_request(b"ZNS:claim:alice:u1xxx"),
+        Ok(RequestMemo::Claim {
+            name: "alice",
+            ua: "u1xxx",
+        }),
+    );
+    assert_eq!(
         parse_claim_memo(b"ZNS:claim:alice:u1xxx"),
         Ok((&b"claim"[..], &b"alice"[..], &b"u1xxx"[..])),
     );
     assert_eq!(
         parse_update_memo(b"ZNS:update:alice:u1new"),
-        Ok((&b"update"[..], &b"alice"[..], &b"u1new"[..])),
+        Ok((&b"update"[..], &b"alice"[..], &b"u1new"[..], None)),
     );
     assert_eq!(
-        parse_release_memo(b"ZNS:release:alice"),
-        Ok((&b"release"[..], &b"alice"[..], &b""[..])),
+        parse_update_memo(b"ZNS:update:alice:u1new:004206"),
+        Ok((
+            &b"update"[..],
+            &b"alice"[..],
+            &b"u1new"[..],
+            Some(*b"004206")
+        )),
+    );
+    assert_eq!(
+        parse_release_memo(b"ZNS:release:alice:u1owner"),
+        Ok((&b"release"[..], &b"alice"[..], &b"u1owner"[..], None)),
+    );
+    assert_eq!(
+        parse_release_memo(b"ZNS:release:alice:u1owner:004206"),
+        Ok((
+            &b"release"[..],
+            &b"alice"[..],
+            &b"u1owner"[..],
+            Some(*b"004206")
+        )),
     );
 }
 
@@ -98,6 +126,27 @@ fn parses_name_note_forms() {
 }
 
 #[test]
+fn expires_at_spelling() {
+    let hex = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+    let ok = format!("ZNS:claim:alice:u1xxx:0:{hex}");
+    assert!(parse_name_note(ok.as_bytes()).is_ok());
+
+    for bad in ["01", "None", "+1", "1.0", ""] {
+        let m = format!("ZNS:claim:alice:u1xxx:{bad}:{hex}");
+        assert_eq!(
+            parse_name_note(m.as_bytes()),
+            Err(MemoError::FieldCount),
+            "expires_at {bad:?}"
+        );
+        assert_eq!(
+            encode_name_note(Action::Claim, "alice", "u1xxx", bad, &[0u8; 32]),
+            Err(MemoError::FieldCount),
+            "encode expires_at {bad:?}"
+        );
+    }
+}
+
+#[test]
 fn release_must_have_none_expiry() {
     let hex = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
     // Release with a non-none expires_at is rejected (WP §3.1)
@@ -112,8 +161,17 @@ fn request_parsers_reject_name_note_fields() {
     assert_eq!(parse_claim_memo(m.as_bytes()), Err(MemoError::FieldCount));
     let m = format!("ZNS:update:alice:u1new:none:{hex}");
     assert_eq!(parse_update_memo(m.as_bytes()), Err(MemoError::FieldCount));
-    let m = format!("ZNS:release:alice:none:{hex}");
+    let m = format!("ZNS:release:alice:u1old:none:{hex}");
     assert_eq!(parse_release_memo(m.as_bytes()), Err(MemoError::FieldCount));
+}
+
+#[test]
+fn otp_relay_is_not_a_request() {
+    // OTP relay: otp first. Not a request.
+    assert_eq!(
+        parse_request(b"ZNS:otp:004206:alice:update:u1new"),
+        Err(MemoError::UnknownVerb)
+    );
 }
 
 #[test]
@@ -145,17 +203,35 @@ fn strict_field_counts() {
         parse_name_note(b"ZNS:update:alice:u1x:none:extra"),
         Err(MemoError::InvalidPrevRcm)
     );
+    // Missing UA.
     assert_eq!(
-        parse_release_memo(b"ZNS:release:alice:junk"),
+        parse_release_memo(b"ZNS:release:alice"),
         Err(MemoError::FieldCount)
     );
     assert_eq!(
         parse_release_memo(b"ZNS:release:alice:"),
+        Err(MemoError::EmptyArg)
+    );
+    // Opaque UA is allowed; a sixth field is a Name Note, not a request.
+    assert_eq!(
+        parse_release_memo(b"ZNS:release:alice:junk"),
+        Ok((&b"release"[..], &b"alice"[..], &b"junk"[..], None)),
+    );
+    assert_eq!(
+        parse_release_memo(b"ZNS:release:alice:u1x:abcdef"),
+        Err(MemoError::InvalidOtp)
+    );
+    assert_eq!(
+        parse_release_memo(b"ZNS:release:alice:u1x:abc"),
+        Err(MemoError::InvalidOtp)
+    );
+    assert_eq!(
+        parse_claim_memo(b"ZNS:claim:alice:u1x:004206"),
         Err(MemoError::FieldCount)
     );
     assert_eq!(
         parse_claim_memo(b"ZNS:claim:alice"),
-        Err(MemoError::EmptyArg)
+        Err(MemoError::FieldCount)
     );
     assert_eq!(
         parse_claim_memo(b"ZNS:claim:alice:"),
@@ -193,10 +269,35 @@ fn encode_round_trips() {
         parse_claim_memo(&m),
         Ok((&b"claim"[..], &b"alice"[..], &b"u1xxx"[..]))
     );
-    let m = encode_request(Action::Release, "alice", "").unwrap();
+    let m = encode_request(Action::Update, "alice", "u1new").unwrap();
+    assert_eq!(
+        parse_update_memo(&m),
+        Ok((&b"update"[..], &b"alice"[..], &b"u1new"[..], None))
+    );
+    let m = encode_request_with_otp(Action::Update, "alice", "u1new", b"004206").unwrap();
+    assert_eq!(
+        parse_update_memo(&m),
+        Ok((
+            &b"update"[..],
+            &b"alice"[..],
+            &b"u1new"[..],
+            Some(*b"004206")
+        ))
+    );
+    let m = encode_request(Action::Release, "alice", "u1owner").unwrap();
     assert_eq!(
         parse_release_memo(&m),
-        Ok((&b"release"[..], &b"alice"[..], &b""[..]))
+        Ok((&b"release"[..], &b"alice"[..], &b"u1owner"[..], None))
+    );
+    let m = encode_request_with_otp(Action::Release, "alice", "u1owner", b"004206").unwrap();
+    assert_eq!(
+        parse_release_memo(&m),
+        Ok((
+            &b"release"[..],
+            &b"alice"[..],
+            &b"u1owner"[..],
+            Some(*b"004206")
+        ))
     );
 
     let prev = [0xa5u8; 32];
@@ -230,8 +331,16 @@ fn encode_rejects_what_parse_rejects() {
         Err(MemoError::EmptyArg)
     );
     assert_eq!(
-        encode_request(Action::Release, "alice", "u1x"),
+        encode_request(Action::Release, "alice", ""),
+        Err(MemoError::EmptyArg)
+    );
+    assert_eq!(
+        encode_request_with_otp(Action::Claim, "alice", "u1x", b"004206"),
         Err(MemoError::FieldCount)
+    );
+    assert_eq!(
+        encode_request_with_otp(Action::Update, "alice", "u1x", b"00x206"),
+        Err(MemoError::InvalidOtp)
     );
     assert_eq!(
         encode_request(Action::Claim, "Alice", "u1x"),

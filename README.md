@@ -3,8 +3,8 @@
 The ZcashName verification kernel turns Orchard commitments into a name system without adding any trust.
 
 A ZcashName binding lives inside a Name Note's commitment whose `(rcm, ψ)` are a
-deterministic hash of `(action, name, ua, prev_rcm)` -- this leaves an on-chain record to
-that hash through the note's `cmx`. 
+deterministic hash of `(action, name, ua, expires_at, prev_rcm)` -- this leaves an
+on-chain record to that hash through the note's `cmx`. 
 
 The zns-verify crate recomputes the commitment from
 the note's fields and compares it to the on-chain `cmx`.
@@ -26,7 +26,7 @@ Name Notes must be in the Ironwood pool.
 ## Why Standard Decryption Rejects Name Notes
 
 - Standard ZIP-212 derives `rcm` from `rseed` and checks the recomputed `cmx` against the on-chain value.
-- A Name Note's `rcm` comes from `zns_psi_rcm(action, name, ua, prev_rcm)`, not `rseed`.
+- A Name Note's `rcm` comes from `zns_psi_rcm(action, name, ua, expires_at, prev_rcm)`, not `rseed`.
 - So `zcash_note_encryption`'s `try_decrypt` returns `None` for every valid Name Note.
 - The `decrypt` feature uses `IronwoodDomain` (accepts V3 lead byte `0x03`),
   skips the `cmx` check, but keeps the AEAD authentication; binding integrity
@@ -40,7 +40,10 @@ Name Notes must be in the Ironwood pool.
 - `verify_name_note(...)` -- both at once: recompute and compare against `cmx`,
   returning a plain `bool`.
 - `parse_name_note` -- parse a committed on-chain Name Note into a `NameNote`.
-- `parse_claim_memo` / `parse_update_memo` / `parse_release_memo` -- parse user request memos.
+- `parse_request` -- parse a user request memo (`claim` / `update` / `release`,
+  optional six-digit OTP on update/release).
+- `parse_claim_memo` / `parse_update_memo` / `parse_release_memo` -- verb-specific
+  wrappers around `parse_request`.
 - `encode_*` -- encoders for requests and Name Notes (round-trip with the parser).
 - `prev_rcm_for` -- the per-name transition rule: which `prev_rcm` an action must extend.
 - The canonical strict ZNS memo grammar (one parser for registry, resolver, etc.).
@@ -83,8 +86,8 @@ and minimal dependencies. Production crates: `blake2b_simd`, `pasta_curves`,
 
 ```rust
 use zns_verify::{
-    parse_claim_memo, parse_name_note, parse_release_memo, parse_update_memo, verify_name_note,
-    ZERO_PREV_RCM,
+    parse_claim_memo, parse_name_note, parse_release_memo, parse_request, parse_update_memo,
+    verify_name_note, ZERO_PREV_RCM,
 };
 
 # let (g_d, pk_d) = ([0x11u8; 32], [0x22u8; 32]);
@@ -96,12 +99,15 @@ use zns_verify::{
 #     .unwrap(),
 # );
 
-// Claim request memo (user → registry)
+// Claim request memo (user -> registry)
 let (action, name, ua) = parse_claim_memo(b"ZNS:claim:alice:u1xxx")?;
+let _ = parse_request(b"ZNS:claim:alice:u1xxx")?;
 
-// Similarly:
-let (action, name, ua) = parse_update_memo(b"ZNS:update:alice:u1new")?;
-let (action, name, ua) = parse_release_memo(b"ZNS:release:alice")?;
+// Update / release require a UA; OTP is optional.
+let (_, _, _, otp) = parse_update_memo(b"ZNS:update:alice:u1new")?;
+assert!(otp.is_none());
+let (_, _, _, otp) = parse_release_memo(b"ZNS:release:alice:u1xxx")?;
+assert!(otp.is_none());
 let ok = verify_name_note(
     action, name, ua, b"none", &ZERO_PREV_RCM,
     g_d, pk_d, 0, rho, on_chain_cmx,

@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Request memo grammar matches WP intake / mint `RequestMemo::parse`:
+  `ZNS:claim:<name>:<ua>`, `ZNS:update:<name>:<ua>[:<otp>]`,
+  `ZNS:release:<name>:<ua>[:<otp>]`. Claim, update, and release all require a
+  non-empty UA. Update/release OTP is optional (exactly six ASCII decimal
+  digits). `parse_request` is the shared parser; the named parsers wrap it.
+  `parse_release_memo` returns the UA (not empty) and an `Option<[u8; 6]>`.
+  `encode_request` emits the UA on release; `encode_request_with_otp` covers
+  OTP-bearing forms. `MemoError::InvalidOtp` is new. Breaking.
+- Name Note `expires_at` on claim/update must be exactly `none` or canonical
+  ASCII decimal (digits only, no sign, no leading zeroes except `0`). Release
+  still requires `none` plus a non-empty UA. Hash field order and existing
+  `none` golden vectors are unchanged.
 - Name Notes include `expires_at` in the memo and the ZNS hash (WP §3).
   `zns_psi_rcm` / `verify_name_note` take `expires_at` as raw field bytes
   (`none` or canonical decimal). Name Notes are six fields:
