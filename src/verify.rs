@@ -31,8 +31,13 @@ pub fn verify_name_note_with_witness(
     rho: Rho,
     cmx: ExtractedNoteCommitment,
 ) -> Option<(pallas::Base, pallas::Scalar)> {
-    let expires_at = note.expires_at().map(|e| e.field_bytes()).unwrap_or("none");
-    let prev = note.prev_rcm().unwrap_or(PrevRcm::ZERO);
+    let (expires_at, prev) = match note {
+        NameNote::Claim { expires_at, .. } => (expires_at.field_bytes(), PrevRcm::ZERO),
+        NameNote::Update {
+            expires_at, prev, ..
+        } => (expires_at.field_bytes(), *prev),
+        NameNote::Release { prev, .. } => ("none", *prev),
+    };
     let (psi, rcm) = zns_psi_rcm(
         note.action().as_bytes(),
         note.name().as_str().as_bytes(),

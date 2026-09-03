@@ -10,7 +10,7 @@
 //! from the `rseed` in the decrypted plaintext and rejects the note if the
 //! reconstructed commitment does not match the on-chain value. ZNS Name Notes
 //! deliberately do not use `rseed` for `(rcm, ψ)`. Instead those values are
-//! produced by hashing the binding tuple `(action, name, ua, prev_rcm)` with a
+//! produced by hashing the binding tuple `(action, name, ua, expires_at, prev_rcm)` with a
 //! domain-separated BLAKE2b construction (see [`crate::commitment`]). As a
 //! result, any decryption path that enforces the normal `cmx` check will
 //! discard every valid Name Note.

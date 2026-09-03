@@ -14,15 +14,16 @@ const TAG_RCM: &[u8] = b"rcm";
 /// Number of bits taken from each Pallas base-field input (`rho`, `psi`).
 const L_ORCHARD_BASE: usize = 255;
 
-/// Derives `(ψ, rcm)` from the transition tuple (WP §3.3):
+/// Derives `(ψ, rcm)` from the transition tuple (WP §3.3).
 ///
-/// $$H_t(\sigma) = \mathsf{BLAKE2b\mathchar`-512}(\mathsf{LP}(T) \parallel
-/// \mathsf{LP}(t) \parallel \mathsf{LP}(\alpha) \parallel \mathsf{LP}(n)
-/// \parallel \mathsf{LP}(u) \parallel \mathsf{LP}(e) \parallel p)$$
+/// Hash input (BLAKE2b-512, unkeyed, 64-byte output):
 ///
-/// with $\mathsf{rcm}\_\sigma = \mathsf{ToScalar}(H_{\mathtt{rcm}}(\sigma))$
-/// and $\psi\_\sigma = \mathsf{ToBase}(H_{\mathtt{psi}}(\sigma))$. The
-/// predecessor `p` is appended raw, without a length prefix.
+/// `LP(T) || LP(t) || LP(action) || LP(name) || LP(ua) || LP(expires_at) || prev_rcm`
+///
+/// where `LP(x)` is the 4-byte little-endian length of `x` followed by `x`
+/// itself. `prev_rcm` (32 bytes) is appended raw, without a length prefix.
+///
+/// `rcm` = `ToScalar(H_rcm(sigma))`, `psi` = `ToBase(H_psi(sigma))`.
 pub fn zns_psi_rcm(
     action: &[u8],
     name: &[u8],
@@ -82,11 +83,6 @@ impl ExtractedNoteCommitment {
     pub fn to_bytes(self) -> [u8; 32] {
         self.0.to_repr()
     }
-
-    /// Wraps a base-field element.
-    pub const fn from_base(base: pallas::Base) -> Self {
-        Self(base)
-    }
 }
 
 /// The ρ value of a Name Note.
@@ -102,11 +98,6 @@ impl Rho {
     /// Serializes to the canonical byte representation.
     pub fn to_bytes(self) -> [u8; 32] {
         self.0.to_repr()
-    }
-
-    /// Wraps a base-field element.
-    pub const fn from_base(base: pallas::Base) -> Self {
-        Rho(base)
     }
 }
 

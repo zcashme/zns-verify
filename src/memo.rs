@@ -285,21 +285,14 @@ impl<'a> NameNote<'a> {
                     expires_at: Expiry::from_field(expires_field)?,
                 })
             }
-            "update" => {
-                if prev.is_zero() {
-                    return Err(MemoError::InvalidPrevRcm);
-                }
-                Ok(NameNote::Update {
-                    name,
-                    ua,
-                    expires_at: Expiry::from_field(expires_field)?,
-                    prev,
-                })
-            }
+            "update" | "release" if prev.is_zero() => Err(MemoError::InvalidPrevRcm),
+            "update" => Ok(NameNote::Update {
+                name,
+                ua,
+                expires_at: Expiry::from_field(expires_field)?,
+                prev,
+            }),
             "release" => {
-                if prev.is_zero() {
-                    return Err(MemoError::InvalidPrevRcm);
-                }
                 if expires_field != "none" {
                     return Err(MemoError::InvalidExpiry);
                 }
@@ -347,23 +340,13 @@ impl<'a> NameNote<'a> {
                 prev.to_hex(),
             ),
         };
-        let len = 4
-            + verb.len()
-            + 1
-            + name.len()
-            + 1
-            + ua.len()
-            + 1
-            + expires_bytes.len()
-            + 1
-            + prev_hex.len();
-        if len > MEMO_SIZE {
-            return Err(MemoError::TooLong);
-        }
         let mut memo = [0u8; MEMO_SIZE];
         memo[..3].copy_from_slice(b"ZNS");
         let mut at = 3;
         for field in [verb, name, ua, expires_bytes, &prev_hex] {
+            if at + 1 + field.len() > MEMO_SIZE {
+                return Err(MemoError::TooLong);
+            }
             memo[at] = b':';
             at += 1;
             memo[at..at + field.len()].copy_from_slice(field);
