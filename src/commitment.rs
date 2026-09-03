@@ -1,31 +1,29 @@
-//! Cryptographic material derivation for ZNS bindings.
-//!
-
-// ============================================================================
-// (ψ, rcm) derivation -- BLAKE2b with ZNS length-prefixed domain separation
-// ============================================================================
+//! The ZNS commitment derivation: (ψ, rcm) from the binding tuple (WP §3.3),
+//! and the Sinsemilla note commitment (WP §3.4).
 
 use blake2b_simd::Params;
-use group::ff::PrimeField;
-use pasta_curves::{group::ff::FromUniformBytes, pallas};
+use group::ff::{FromUniformBytes, PrimeField};
+use pasta_curves::pallas;
 
-/// The ρ value used in an Orchard note commitment.
-pub type Rho = pallas::Base;
-
-/// The note commitment (on-chain `cmx`).
-pub type NoteCommitment = pallas::Base;
-
-/// Domain separation tag
+/// The protocol domain tag (WP §3.3).
 pub const ZNS_DOMAIN_TAG: &[u8] = b"ZcashName/v1";
 
-/// Field tags for the two distinct outputs of `zns_psi_rcm`.
 const TAG_PSI: &[u8] = b"psi";
 const TAG_RCM: &[u8] = b"rcm";
 
-/// Derive `(ψ, rcm)` from a ZNS registration tuple.
+/// Number of bits taken from each Pallas base-field input (`rho`, `psi`).
+const L_ORCHARD_BASE: usize = 255;
+
+/// Derives `(ψ, rcm)` from the transition tuple (WP §3.3).
 ///
-/// The tuple is σ = (α, n, u, e, p) per WP §3.2, where `e` is the
-/// `expires_at` field bytes (canonical decimal or `none`).
+/// Hash input (BLAKE2b-512, unkeyed, 64-byte output):
+///
+/// `LP(T) || LP(t) || LP(action) || LP(name) || LP(ua) || LP(expires_at) || prev_rcm`
+///
+/// where `LP(x)` is the 4-byte little-endian length of `x` followed by `x`
+/// itself. `prev_rcm` (32 bytes) is appended raw, without a length prefix.
+///
+/// `rcm` = `ToScalar(H_rcm(sigma))`, `psi` = `ToBase(H_psi(sigma))`.
 pub fn zns_psi_rcm(
     action: &[u8],
     name: &[u8],
@@ -42,10 +40,6 @@ pub fn zns_psi_rcm(
     (psi, rcm)
 }
 
-/// Compute the domain-tagged, length-prefixed BLAKE2b-512 hash that backs
-/// both `(ψ, rcm)` derivations (WP §3.3).
-///
-/// Field order: `LP(T) ∥ LP(t) ∥ LP(α) ∥ LP(n) ∥ LP(u) ∥ LP(e) ∥ p`.
 fn tagged_zns_hash(
     field_tag: &[u8],
     action: &[u8],
@@ -71,30 +65,46 @@ fn tagged_zns_hash(
     out
 }
 
-// ============================================================================
-// Note commitment (Sinsemilla)
-// ============================================================================
+/// The extracted note commitment (`cmx`) of a Name Note (WP §3.4) -- the
+/// x-coordinate of the Sinsemilla commitment to the note contents.
+/// Verification recomputes `cmx` from the note's fields and compares it to
+/// the value recorded on chain.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct ExtractedNoteCommitment(pallas::Base);
 
-use sinsemilla::CommitDomain;
+impl ExtractedNoteCommitment {
+    /// Deserializes from bytes, enforcing the consensus rule that the byte
+    /// representation of `cmx` MUST be canonical.
+    pub fn from_bytes(bytes: &[u8; 32]) -> Option<Self> {
+        pallas::Base::from_repr(*bytes).map(Self).into()
+    }
 
-/// Sinsemilla personalization tag for Orchard note commitments.
-const NOTE_COMMITMENT_PERSONALIZATION: &str = "z.cash:Orchard-NoteCommit";
-
-/// Number of bits taken from each Pallas base-field input (`rho`, `psi`).
-/// Matches orchard's `L_ORCHARD_BASE`.
-const L_ORCHARD_BASE: usize = 255;
-
-/// Yields the bits of the bytes in little-endian bit order (LSB of each byte first).
-/// This is the exact order expected by Sinsemilla for Orchard note commitments.
-fn le_bytes_lsb0(bytes: &[u8]) -> impl Iterator<Item = bool> + '_ {
-    bytes
-        .iter()
-        .copied()
-        .flat_map(|b| (0..8).map(move |i| (b >> i) & 1 != 0))
+    /// Serializes to the canonical byte representation.
+    pub fn to_bytes(self) -> [u8; 32] {
+        self.0.to_repr()
+    }
 }
 
-/// Computes `cmx`, the x-coordinate of the Sinsemilla note commitment, from
-/// the raw note components plus caller-supplied `(ψ, rcm)`.
+/// The ρ value of a Name Note.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct Rho(pallas::Base);
+
+impl Rho {
+    /// Deserializes from bytes.
+    pub fn from_bytes(bytes: &[u8; 32]) -> Option<Self> {
+        pallas::Base::from_repr(*bytes).map(Rho).into()
+    }
+
+    /// Serializes to the canonical byte representation.
+    pub fn to_bytes(self) -> [u8; 32] {
+        self.0.to_repr()
+    }
+}
+
+/// Derives `cmx` from the note components and the ZNS opening (WP §3.4).
+///
+/// Returns `None` when the commitment is the identity point; such a value
+/// cannot equal a real on-chain `cmx`.
 pub fn note_commitment_cmx(
     g_d: [u8; 32],
     pk_d: [u8; 32],
@@ -102,10 +112,10 @@ pub fn note_commitment_cmx(
     rho: Rho,
     psi: pallas::Base,
     rcm: pallas::Scalar,
-) -> Option<NoteCommitment> {
-    let domain = CommitDomain::new(NOTE_COMMITMENT_PERSONALIZATION);
+) -> Option<ExtractedNoteCommitment> {
+    let domain = sinsemilla::CommitDomain::new("z.cash:Orchard-NoteCommit");
     let value_bytes = value.to_le_bytes();
-    let rho_bytes = rho.to_repr();
+    let rho_bytes = rho.to_bytes();
     let psi_bytes = psi.to_repr();
 
     let bits = le_bytes_lsb0(&g_d)
@@ -114,17 +124,20 @@ pub fn note_commitment_cmx(
         .chain(le_bytes_lsb0(&rho_bytes).take(L_ORCHARD_BASE))
         .chain(le_bytes_lsb0(&psi_bytes).take(L_ORCHARD_BASE));
 
-    Option::<NoteCommitment>::from(domain.short_commit(bits, &rcm))
+    Option::<pallas::Base>::from(domain.short_commit(bits, &rcm)).map(ExtractedNoteCommitment)
+}
+
+fn le_bytes_lsb0(bytes: &[u8]) -> impl Iterator<Item = bool> + '_ {
+    bytes
+        .iter()
+        .copied()
+        .flat_map(|b| (0..8).map(move |i| (b >> i) & 1 != 0))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::base_from_bytes;
 
-    /// WP §3.5 conformance: the whitepaper's golden vector.
-    /// Inputs: all-zero seed, account m/32'/133'/1', diversifier 0, external, mainnet.
-    /// value=0, rho=[0x33;32], expires_at=none, prev_rcm=zeroes.
     #[test]
     fn wp_section_3_5_golden_vector() {
         let g_d: [u8; 32] =
@@ -137,27 +150,24 @@ mod tests {
                 .unwrap()
                 .try_into()
                 .unwrap();
-        let rho = base_from_bytes([0x33u8; 32]);
+        let rho = Rho::from_bytes(&[0x33u8; 32]).unwrap();
         let ua = b"u1897y9pzw3zk6n9twtzu2z5kpkzw3hms2c54fpyv8lnr79m73tazljkk3veaxrtwncp66lf45p3f274xy2amqckx0sraje4v835yw8q0q";
 
         let (psi, rcm) = zns_psi_rcm(b"claim", b"alice", ua, b"none", &[0u8; 32]);
 
         assert_eq!(
             hex::encode(psi.to_repr()),
-            "9f8a61b860c737d4564f12c635d654b843bc7115d9dc6cf6f09e409c81b8d13e",
-            "WP §3.5 psi mismatch"
+            "9f8a61b860c737d4564f12c635d654b843bc7115d9dc6cf6f09e409c81b8d13e"
         );
         assert_eq!(
             hex::encode(rcm.to_repr()),
-            "daa928be21d0ec13b5dbb0244699dbfeba546c71591d24d7824db78e4670c504",
-            "WP §3.5 rcm mismatch"
+            "daa928be21d0ec13b5dbb0244699dbfeba546c71591d24d7824db78e4670c504"
         );
 
         let cmx = note_commitment_cmx(g_d, pk_d, 0, rho, psi, rcm).unwrap();
         assert_eq!(
-            hex::encode(cmx.to_repr()),
-            "cc320736a0c1df1e4ffcee2b64aa73a9e6d06bb218e155a6fef422e1ecb1f70c",
-            "WP §3.5 cmx mismatch"
+            hex::encode(cmx.to_bytes()),
+            "cc320736a0c1df1e4ffcee2b64aa73a9e6d06bb218e155a6fef422e1ecb1f70c"
         );
     }
 }

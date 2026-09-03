@@ -1,22 +1,190 @@
-//! Protocol rules for ZNS -- the reference definition of the memo grammar and lifecycle rules.
+//! The Name Note memo grammar and lifecycle rules.
 
-// ============================================================================
-// Action
-// ============================================================================
+/// The fixed ZIP-302 memo size, in bytes.
+pub const MEMO_SIZE: usize = 512;
 
-/// ZNS action kinds.
+/// A zero-padded ZIP-302 memo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Memo([u8; MEMO_SIZE]);
+
+impl Memo {
+    /// Creates a memo from bytes, zero-padded to [`MEMO_SIZE`].
+    ///
+    /// Returns [`MemoError::TooLong`] when `bytes` exceeds [`MEMO_SIZE`].
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, MemoError> {
+        if bytes.len() > MEMO_SIZE {
+            return Err(MemoError::TooLong);
+        }
+        let mut memo = [0u8; MEMO_SIZE];
+        memo[..bytes.len()].copy_from_slice(bytes);
+        Ok(Memo(memo))
+    }
+
+    /// Creates a memo directly from a fixed-size array.
+    pub const fn from_array(bytes: [u8; MEMO_SIZE]) -> Self {
+        Memo(bytes)
+    }
+
+    /// The underlying bytes, including zero padding.
+    pub const fn as_array(&self) -> &[u8; MEMO_SIZE] {
+        &self.0
+    }
+
+    /// The memo text, provided the padding is canonical and the content is UTF-8.
+    pub fn text(&self) -> Option<&str> {
+        let end = self.0.iter().position(|&b| b == 0).unwrap_or(self.0.len());
+        if self.0[end..].iter().any(|&b| b != 0) {
+            return None;
+        }
+        core::str::from_utf8(&self.0[..end]).ok()
+    }
+}
+
+/// The maximum name length in bytes (the ZNS name rule bound).
+pub const MAX_NAME_LEN: usize = 63;
+
+/// A validated ZNS name: 1 to [`MAX_NAME_LEN`] bytes of `a-z 0-9`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Name<'a>(&'a str);
+
+impl<'a> Name<'a> {
+    /// Validates a name per the ZNS name rule.
+    pub fn parse(s: &'a str) -> Result<Self, MemoError> {
+        let bytes = s.as_bytes();
+        if bytes.is_empty() || bytes.len() > MAX_NAME_LEN {
+            return Err(MemoError::InvalidName);
+        }
+        if !bytes.iter().all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9')) {
+            return Err(MemoError::InvalidName);
+        }
+        Ok(Name(s))
+    }
+
+    /// The validated name.
+    pub const fn as_str(&self) -> &'a str {
+        self.0
+    }
+}
+
+/// A validated Zcash unified address: non-empty.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Ua<'a>(&'a str);
+
+impl<'a> Ua<'a> {
+    /// Validates a UA per the ZNS memo rule.
+    pub fn parse(s: &'a str) -> Result<Self, MemoError> {
+        if s.is_empty() {
+            return Err(MemoError::EmptyUa);
+        }
+        Ok(Ua(s))
+    }
+
+    /// The validated UA.
+    pub const fn as_str(&self) -> &'a str {
+        self.0
+    }
+}
+
+/// The committed expiration of a registration: exactly `none`, or a
+/// canonical ASCII decimal Unix timestamp in whole seconds (WP §3.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Expiry<'a>(&'a str);
+
+impl<'a> Expiry<'a> {
+    /// The expiry of a registration without fixed expiration.
+    pub const NEVER: Self = Expiry("none");
+
+    /// Validates the `expires_at` memo field (WP §3.1).
+    ///
+    /// Non-canonical spellings are rejected because the raw field bytes are
+    /// hashed into the commitment: `1` and `01` are different transitions.
+    pub fn from_field(s: &'a str) -> Result<Self, MemoError> {
+        if s == "none" {
+            return Ok(Expiry("none"));
+        }
+        let bytes = s.as_bytes();
+        if bytes.is_empty() || bytes.len() > 20 || !bytes.iter().all(u8::is_ascii_digit) {
+            return Err(MemoError::InvalidExpiry);
+        }
+        if bytes.len() > 1 && bytes[0] == b'0' {
+            return Err(MemoError::InvalidExpiry);
+        }
+        Ok(Expiry(s))
+    }
+
+    /// The raw field bytes, hashed verbatim into the commitment.
+    pub const fn field_bytes(&self) -> &'a str {
+        self.0
+    }
+
+    /// Whether the registration has no fixed expiration.
+    pub fn is_never(&self) -> bool {
+        self.0 == "none"
+    }
+}
+
+/// The disclosed predecessor witness of a transition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PrevRcm([u8; 32]);
+
+impl PrevRcm {
+    /// The 64-zero predecessor of a claim (WP §3.1).
+    pub const ZERO: Self = PrevRcm(ZERO_PREV_RCM);
+
+    /// Decodes exactly 64 lowercase hex chars.
+    pub fn from_hex(s: &str) -> Result<Self, MemoError> {
+        let bytes = s.as_bytes();
+        if bytes.len() != 64 {
+            return Err(MemoError::InvalidPrevRcm);
+        }
+        let nibble = |b: u8| match b {
+            b'0'..=b'9' => Ok(b - b'0'),
+            b'a'..=b'f' => Ok(b - b'a' + 10),
+            _ => Err(MemoError::InvalidPrevRcm),
+        };
+        let mut out = [0u8; 32];
+        let (pairs, _) = bytes.as_chunks::<2>();
+        for (i, pair) in pairs.iter().enumerate() {
+            out[i] = (nibble(pair[0])? << 4) | nibble(pair[1])?;
+        }
+        Ok(PrevRcm(out))
+    }
+
+    /// The 64-char lowercase hex encoding.
+    pub fn to_hex(&self) -> [u8; 64] {
+        let mut hex = [0u8; 64];
+        for (i, b) in self.0.iter().enumerate() {
+            const DIGITS: &[u8; 16] = b"0123456789abcdef";
+            hex[2 * i] = DIGITS[(b >> 4) as usize];
+            hex[2 * i + 1] = DIGITS[(b & 0xf) as usize];
+        }
+        hex
+    }
+
+    /// The raw predecessor bytes.
+    pub const fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+
+    /// Whether this is the zero predecessor.
+    pub fn is_zero(&self) -> bool {
+        self.0 == [0u8; 32]
+    }
+}
+
+/// A ZNS name action.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Action {
-    /// Point a name to an address
+    /// Point a name to an address.
     Claim,
-    /// Rebinds a name to a new address
+    /// Rebind a name to a new address.
     Update,
-    /// Terminates a name's linkage to an address
+    /// Terminate a name's linkage to an address.
     Release,
 }
 
 impl Action {
-    /// The canonical ASCII bytes for a name action, use in hash inputs (case-sensitive).
+    /// The canonical ASCII bytes used in hash inputs.
     pub const fn as_bytes(self) -> &'static [u8] {
         match self {
             Action::Claim => b"claim",
@@ -25,7 +193,7 @@ impl Action {
         }
     }
 
-    /// Parse the name-action bytes from their canonical ASCII form (case-sensitive).
+    /// Parses the canonical ASCII form, case-sensitive.
     pub fn from_bytes(b: &[u8]) -> Option<Self> {
         match b {
             b"claim" => Some(Action::Claim),
@@ -36,29 +204,19 @@ impl Action {
     }
 }
 
-// ============================================================================
-// Chain rule (name lifecycle transitions)
-// ============================================================================
-
-/// The genesis `prev_rcm` for CLAIM (initial value at the start of a name's chain).
+/// The genesis `prev_rcm` for a claim.
 pub const ZERO_PREV_RCM: [u8; 32] = [0u8; 32];
 
-/// Name chain tip for the lifecycle rule (includes RELEASE).
+/// The live tip of a name's chain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Tip {
-    /// Latest action.
+    /// The latest action.
     pub action: Action,
-    /// `rcm` the next action must extend.
+    /// The `rcm` the next action must extend.
     pub rcm: [u8; 32],
 }
 
-/// The `prev_rcm` an `action` must extend given the name's current `tip`, or
-/// `None` if the action does not fit the chain:
-///
-/// - CLAIM starts a fresh chain ([`ZERO_PREV_RCM`] genesis) on an unseen *or*
-///   released name;
-/// - UPDATE / RELEASE extend a live (non-released) tip, chaining off its
-///   `rcm`.
+/// The `prev_rcm` an `action` must extend given the name's current tip.
 pub fn prev_rcm_for(tip: Option<&Tip>, action: Action) -> Option<[u8; 32]> {
     match (action, tip) {
         (Action::Claim, None) => Some(ZERO_PREV_RCM),
@@ -68,320 +226,475 @@ pub fn prev_rcm_for(tip: Option<&Tip>, action: Action) -> Option<[u8; 32]> {
     }
 }
 
-// ============================================================================
-// Memo grammar (canonical parser + encoder)
-// ============================================================================
-
-/*
-The canonical ZNS memo grammar -- one parser for every party.
-
-The grammar covers the ZNS memos that appear on chain:
-
-```text
-ZNS:claim:<name>:<ua>                          lifecycle request (user → registry)
-ZNS:update:<name>:<ua>                         lifecycle request
-ZNS:release:<name>                             lifecycle request
-ZNS:claim:<name>:<ua>:<expires_at>:<prev_rcm>   Name Note canonical form (WP §3.1)
-ZNS:update:<name>:<ua>:<expires_at>:<prev_rcm>  Name Note canonical form
-ZNS:release:<name>:<ua>:none:<prev_rcm>          Name Note canonical form
-```
-
-`<prev_rcm>` is 64 lowercase hex chars. It is the *witness* for note-local
-verification: the commitment already binds `prev_rcm` as a hash input, so
-disclosing it in the Name Note's memo lets any scanner verify a single note's
-binding without first reconstructing the name's whole chain. `<expires_at>`
-is canonical ASCII decimal or the exact bytes `none` (WP §3.1). A RELEASE
-MUST encode the released UA and exactly `none` for `expires_at`. Fields stay
-positional in all forms.
-
-The grammar is **strict**: exact field counts (extra or empty fields reject),
-and names follow the DNS-label rule (≤ [`MAX_NAME_LEN`] bytes of `a-z 0-9 -`,
-no leading or trailing hyphen). Memos are ZIP-302: 512 bytes, zero-padded;
-trailing zeros are stripped before parsing.
-*/
-
-/// The fixed ZIP-302 memo size, in bytes.
-pub const MEMO_SIZE: usize = 512;
-
-/// Maximum name length in bytes (the DNS label bound).
-pub const MAX_NAME_LEN: usize = 63;
-
-/// A committed ZNS Name Note (the form that appears on-chain).
+/// A committed Name Note (WP §3.1): the form that appears on chain.
 ///
-/// This is the only memo shape that carries a `prev_rcm` witness and can be
-/// directly used with `verify_name_note`.
-///
-/// The `expires_at` field is the raw ASCII bytes from the memo: canonical
-/// decimal for a fixed-term registration, or the exact bytes `none` for a
-/// registration without fixed expiration (WP §3.1). A RELEASE MUST encode
-/// `none` (WP §3.1).
+/// A release has no expiry field, and a claim has no predecessor field: the
+/// type makes those constraints structural rather than checked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct NameNote<'a> {
-    /// CLAIM, UPDATE, or RELEASE.
-    pub action: Action,
-    /// The name being acted on.
-    pub name: &'a str,
-    /// The UA being bound (the released UA for RELEASE; never empty).
-    pub ua: &'a str,
-    /// The `expires_at` field: canonical decimal or `none`.
-    pub expires_at: &'a str,
-    /// The disclosed `prev_rcm` witness from the on-chain Name Note.
-    pub prev_rcm: [u8; 32],
+pub enum NameNote<'a> {
+    /// Bind `name` to `ua` for `expires_at`; no predecessor exists.
+    Claim {
+        /// The name being claimed.
+        name: Name<'a>,
+        /// The UA being bound.
+        ua: Ua<'a>,
+        /// The committed expiration.
+        expires_at: Expiry<'a>,
+    },
+    /// Rebind `name` to `ua`, chaining off the predecessor.
+    Update {
+        /// The name being updated.
+        name: Name<'a>,
+        /// The new UA.
+        ua: Ua<'a>,
+        /// The carried-forward or extended expiration.
+        expires_at: Expiry<'a>,
+        /// The disclosed predecessor witness.
+        prev_rcm: PrevRcm,
+    },
+    /// Terminate the registration, retaining the released UA.
+    Release {
+        /// The name being released.
+        name: Name<'a>,
+        /// The UA being released.
+        ua: Ua<'a>,
+        /// The disclosed predecessor witness.
+        prev_rcm: PrevRcm,
+    },
 }
 
-/// Why a memo failed to parse.
-///
-/// [`MemoError::NotZns`] is the common bulk case for a scanner (an ordinary
-/// payment memo); everything else means the memo claimed to be ZNS but broke
-/// the grammar.
+impl<'a> NameNote<'a> {
+    /// Parses a Name Note from its zero-padded 512-byte memo (WP §3.1).
+    ///
+    /// The returned note borrows from `memo`. This is the only way to
+    /// construct a `NameNote` from untrusted bytes.
+    pub fn parse(memo: &'a Memo) -> Result<Self, MemoError> {
+        let text = memo.text().ok_or(MemoError::NotZns)?;
+        let mut fields = text.split(':');
+        if fields.next() != Some("ZNS") {
+            return Err(MemoError::NotZns);
+        }
+        let verb = fields.next().ok_or(MemoError::FieldCount)?;
+        let name = Name::parse(fields.next().ok_or(MemoError::FieldCount)?)?;
+        let ua = Ua::parse(fields.next().ok_or(MemoError::FieldCount)?)?;
+        let expires_field = fields.next().ok_or(MemoError::FieldCount)?;
+        let prev_hex = fields.next().ok_or(MemoError::FieldCount)?;
+        if fields.next().is_some() {
+            return Err(MemoError::FieldCount);
+        }
+        let prev = PrevRcm::from_hex(prev_hex)?;
+
+        let action = Action::from_bytes(verb.as_bytes()).ok_or(MemoError::UnknownVerb)?;
+
+        match action {
+            Action::Claim => {
+                if !prev.is_zero() {
+                    return Err(MemoError::InvalidPrevRcm);
+                }
+                Ok(NameNote::Claim {
+                    name,
+                    ua,
+                    expires_at: Expiry::from_field(expires_field)?,
+                })
+            }
+            Action::Update | Action::Release if prev.is_zero() => Err(MemoError::InvalidPrevRcm),
+            Action::Update => Ok(NameNote::Update {
+                name,
+                ua,
+                expires_at: Expiry::from_field(expires_field)?,
+                prev_rcm: prev,
+            }),
+            Action::Release => {
+                if expires_field != "none" {
+                    return Err(MemoError::InvalidExpiry);
+                }
+                Ok(NameNote::Release {
+                    name,
+                    ua,
+                    prev_rcm: prev,
+                })
+            }
+        }
+    }
+
+    /// Encodes the canonical zero-padded memo.
+    ///
+    /// Returns [`MemoError::TooLong`] if the UA cannot fit, which valid
+    /// protocol transitions never trigger (WP §4, on-chain completeness).
+    pub fn encode(&self) -> Result<Memo, MemoError> {
+        let verb = self.action().as_bytes();
+        let (name, ua, expires_bytes, prev_hex) = match self {
+            NameNote::Claim {
+                name,
+                ua,
+                expires_at,
+            } => {
+                const ZERO_HEX: [u8; 64] = [b'0'; 64];
+                (
+                    name.as_str().as_bytes(),
+                    ua.as_str().as_bytes(),
+                    expires_at.field_bytes().as_bytes(),
+                    ZERO_HEX,
+                )
+            }
+            NameNote::Update {
+                name,
+                ua,
+                expires_at,
+                prev_rcm,
+            } => (
+                name.as_str().as_bytes(),
+                ua.as_str().as_bytes(),
+                expires_at.field_bytes().as_bytes(),
+                prev_rcm.to_hex(),
+            ),
+            NameNote::Release { name, ua, prev_rcm } => (
+                name.as_str().as_bytes(),
+                ua.as_str().as_bytes(),
+                b"none".as_slice(),
+                prev_rcm.to_hex(),
+            ),
+        };
+        let mut memo = [0u8; MEMO_SIZE];
+        memo[..3].copy_from_slice(b"ZNS");
+        let mut at = 3;
+        for field in [verb, name, ua, expires_bytes, &prev_hex] {
+            if at + 1 + field.len() > MEMO_SIZE {
+                return Err(MemoError::TooLong);
+            }
+            memo[at] = b':';
+            at += 1;
+            memo[at..at + field.len()].copy_from_slice(field);
+            at += field.len();
+        }
+        Ok(Memo(memo))
+    }
+
+    /// The transition kind.
+    pub fn action(&self) -> Action {
+        match self {
+            NameNote::Claim { .. } => Action::Claim,
+            NameNote::Update { .. } => Action::Update,
+            NameNote::Release { .. } => Action::Release,
+        }
+    }
+
+    /// The validated name.
+    pub const fn name(&self) -> &Name<'a> {
+        match self {
+            NameNote::Claim { name, .. }
+            | NameNote::Update { name, .. }
+            | NameNote::Release { name, .. } => name,
+        }
+    }
+
+    /// The validated UA; a release retains the released UA.
+    pub fn ua(&self) -> &Ua<'a> {
+        match self {
+            NameNote::Claim { ua, .. }
+            | NameNote::Update { ua, .. }
+            | NameNote::Release { ua, .. } => ua,
+        }
+    }
+
+    /// The committed expiration; absent on a release.
+    pub fn expires_at(&self) -> Option<Expiry<'a>> {
+        match self {
+            NameNote::Claim { expires_at, .. } | NameNote::Update { expires_at, .. } => {
+                Some(*expires_at)
+            }
+            NameNote::Release { .. } => None,
+        }
+    }
+
+    /// The disclosed predecessor witness; absent on a claim.
+    pub fn prev_rcm(&self) -> Option<PrevRcm> {
+        match self {
+            NameNote::Claim { .. } => None,
+            NameNote::Update { prev_rcm, .. } | NameNote::Release { prev_rcm, .. } => {
+                Some(*prev_rcm)
+            }
+        }
+    }
+}
+
+/// Why a memo failed to parse or encode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemoError {
-    /// Not a ZNS memo at all (no `ZNS:` prefix, or not UTF-8).
+    /// Not a ZNS memo (no `ZNS:` prefix, non-UTF-8, or non-canonical padding).
     NotZns,
-    /// A `ZNS:` memo with an unknown verb.
+    /// An unknown verb.
     UnknownVerb,
-    /// Wrong number of `:`-separated fields for the verb.
+    /// Wrong number of `:`-separated fields.
     FieldCount,
-    /// The name violates the DNS-label rule.
+    /// The name violates the ZNS name rule.
     InvalidName,
-    /// A required argument (`ua` or `nonce`) is empty.
-    EmptyArg,
-    /// `prev_rcm` is not exactly 64 lowercase hex chars.
+    /// The `ua` field is empty.
+    EmptyUa,
+    /// The `expires_at` field is non-canonical, or present on a release.
+    InvalidExpiry,
+    /// `prev_rcm` is not 64 lowercase hex chars, or inconsistent with the action.
     InvalidPrevRcm,
-    /// The encoded memo would exceed [`MEMO_SIZE`] bytes.
+    /// The encoded memo would exceed [`MEMO_SIZE`].
     TooLong,
 }
 
-/// Common logic for splitting a ZNS: memo into its fields.
-/// This is the single strict implementation of the grammar rules
-/// (field counts, name validation, prev_rcm hex decoding, etc.).
-///
-/// Returns `(verb, name, ua, expires_at, prev_rcm)` for Name Notes and
-/// `(verb, name, ua, None, None)` for request memos.
-fn parse_zns_memo_fields(
-    raw: &[u8],
-) -> Result<(&str, &str, Option<&str>, Option<&str>, Option<[u8; 32]>), MemoError> {
-    let end = raw.iter().rposition(|b| *b != 0).map_or(0, |p| p + 1);
-    let text = core::str::from_utf8(&raw[..end]).map_err(|_| MemoError::NotZns)?;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let mut fields = text.split(':');
-    if fields.next() != Some("ZNS") {
-        return Err(MemoError::NotZns);
+    const UA: &str = "u1897y9pzw3zk6n9twtzu2z5kpkzw3hms2c54fpyv8lnr79m73tazljkk3veaxrtwncp66lf45p3f274xy2amqckx0sraje4v835yw8q0q";
+    const HEX: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+    const ZERO_HEX: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+
+    #[test]
+    fn name_validation() {
+        assert!(Name::parse("alice").is_ok());
+        assert!(Name::parse("a1").is_ok());
+        assert!(Name::parse("123").is_ok());
+        assert!(Name::parse(&"a".repeat(63)).is_ok());
+        assert!(Name::parse("").is_err());
+        assert!(Name::parse(&"a".repeat(64)).is_err());
+        assert!(Name::parse("Alice").is_err());
+        assert!(Name::parse("a-1").is_err());
+        assert!(Name::parse("al ice").is_err());
+        assert!(Name::parse("a.b").is_err());
     }
-    let verb = fields.next().ok_or(MemoError::FieldCount)?;
-    let name = fields.next().ok_or(MemoError::FieldCount)?;
-    validate_name(name)?;
 
-    let (arg, fifth, sixth) = (fields.next(), fields.next(), fields.next());
-    if fields.next().is_some() {
-        return Err(MemoError::FieldCount);
+    #[test]
+    fn expiry_validation() {
+        assert_eq!(Expiry::from_field("none"), Ok(Expiry::NEVER));
+        assert!(Expiry::from_field("0").is_ok());
+        assert!(Expiry::from_field("1775000000").is_ok());
+        assert!(Expiry::from_field("01").is_err());
+        assert!(Expiry::from_field("+1").is_err());
+        assert!(Expiry::from_field("1.0").is_err());
+        assert!(Expiry::from_field("").is_err());
+        assert!(Expiry::from_field("None").is_err());
+        assert_eq!(Expiry::from_field("none").unwrap().field_bytes(), "none");
     }
-    let prev_rcm = sixth.map(decode_prev_rcm).transpose()?;
-    Ok((verb, name, arg, fifth, prev_rcm))
-}
 
-/// Parse a committed Name Note (the on-chain form) into its fields.
-///
-/// The canonical form is six fields (WP §3.1):
-/// `ZNS:<verb>:<name>:<ua>:<expires_at>:<prev_rcm>`
-///
-/// A RELEASE must encode the released UA (not empty) and exactly `none`
-/// for `expires_at` (WP §3.1).
-pub fn parse_name_note(raw: &[u8]) -> Result<NameNote<'_>, MemoError> {
-    let (verb, name, ua, expires_at, prev_rcm) = parse_zns_memo_fields(raw)?;
-    let prev_rcm = prev_rcm.ok_or(MemoError::FieldCount)?;
-    let expires_at = expires_at.ok_or(MemoError::FieldCount)?;
+    #[test]
+    fn prev_rcm_hex_codec() {
+        let prev = PrevRcm::from_hex(HEX).unwrap();
+        assert_eq!(prev.to_hex(), HEX.as_bytes());
+        assert!(PrevRcm::from_hex(&HEX.to_uppercase()).is_err());
+        assert!(PrevRcm::from_hex("abcd").is_err());
+        assert!(PrevRcm::ZERO.is_zero());
+        assert!(!prev.is_zero());
+    }
 
-    fn required(arg: Option<&str>) -> Result<&str, MemoError> {
-        match arg {
-            Some("") | None => Err(MemoError::EmptyArg),
-            Some(a) => Ok(a),
+    #[test]
+    fn ua_validation() {
+        assert!(Ua::parse("u1xxx").is_ok());
+        assert!(Ua::parse(UA).is_ok());
+        assert!(Ua::parse("").is_err());
+    }
+
+    #[test]
+    fn action_round_trip() {
+        for action in [Action::Claim, Action::Update, Action::Release] {
+            assert_eq!(Action::from_bytes(action.as_bytes()), Some(action));
         }
+        assert_eq!(Action::from_bytes(b"Claim"), None);
+        assert_eq!(Action::from_bytes(b"CLAIM"), None);
+        assert_eq!(Action::from_bytes(b""), None);
+        assert_eq!(Action::from_bytes(b"transfer"), None);
     }
 
-    match verb {
-        "claim" => Ok(NameNote {
-            action: Action::Claim,
-            name,
-            ua: required(ua)?,
-            expires_at,
-            prev_rcm,
-        }),
-        "update" => Ok(NameNote {
-            action: Action::Update,
-            name,
-            ua: required(ua)?,
-            expires_at,
-            prev_rcm,
-        }),
-        "release" => {
-            if expires_at != "none" {
-                return Err(MemoError::FieldCount);
-            }
-            Ok(NameNote {
-                action: Action::Release,
+    #[test]
+    fn wp_golden_memo_parses_and_round_trips() {
+        let golden = format!("ZNS:claim:alice:{}:none:{}", UA, ZERO_HEX);
+        let m = Memo::from_bytes(golden.as_bytes()).unwrap();
+        let note = NameNote::parse(&m).unwrap();
+        match note {
+            NameNote::Claim {
                 name,
-                ua: required(ua)?,
+                ua,
                 expires_at,
-                prev_rcm,
-            })
+            } => {
+                assert_eq!(name.as_str(), "alice");
+                assert!(ua.as_str().starts_with("u1897"));
+                assert_eq!(expires_at, Expiry::NEVER);
+            }
+            _ => panic!("expected claim"),
         }
-        _ => Err(MemoError::UnknownVerb),
+        assert_eq!(note.encode().unwrap().as_array(), m.as_array());
     }
-}
 
-/// Parse a "claim" request memo (the user → registry form "ZNS:claim:<name>:<ua>").
-/// Returns (action, name, ua).
-pub fn parse_claim_memo(raw: &[u8]) -> Result<(&[u8], &[u8], &[u8]), MemoError> {
-    let (verb, name, arg, expires_at, prev_rcm) = parse_zns_memo_fields(raw)?;
-    if prev_rcm.is_some() || expires_at.is_some() {
-        return Err(MemoError::FieldCount);
-    }
-    if verb != "claim" {
-        return Err(MemoError::UnknownVerb);
-    }
-    let ua = match arg {
-        Some(a) if !a.is_empty() => a,
-        _ => return Err(MemoError::EmptyArg),
-    };
-    Ok((b"claim", name.as_bytes(), ua.as_bytes()))
-}
-
-/// Parse an "update" request memo (the user → registry form "ZNS:update:<name>:<ua>").
-/// Returns (action, name, ua).
-pub fn parse_update_memo(raw: &[u8]) -> Result<(&[u8], &[u8], &[u8]), MemoError> {
-    let (verb, name, arg, expires_at, prev_rcm) = parse_zns_memo_fields(raw)?;
-    if prev_rcm.is_some() || expires_at.is_some() {
-        return Err(MemoError::FieldCount);
-    }
-    if verb != "update" {
-        return Err(MemoError::UnknownVerb);
-    }
-    let ua = match arg {
-        Some(a) if !a.is_empty() => a,
-        _ => return Err(MemoError::EmptyArg),
-    };
-    Ok((b"update", name.as_bytes(), ua.as_bytes()))
-}
-
-/// Parse a "release" request memo (the user → registry form "ZNS:release:<name>").
-/// Returns (action, name, ua) where ua is empty.
-pub fn parse_release_memo(raw: &[u8]) -> Result<(&[u8], &[u8], &[u8]), MemoError> {
-    let (verb, name, arg, expires_at, prev_rcm) = parse_zns_memo_fields(raw)?;
-    if prev_rcm.is_some() || expires_at.is_some() {
-        return Err(MemoError::FieldCount);
-    }
-    if verb != "release" {
-        return Err(MemoError::UnknownVerb);
-    }
-    if arg.is_some() {
-        return Err(MemoError::FieldCount);
-    }
-    Ok((b"release", name.as_bytes(), b""))
-}
-
-/// Decode a `prev_rcm` field: exactly 64 lowercase hex chars.
-fn decode_prev_rcm(s: &str) -> Result<[u8; 32], MemoError> {
-    let bytes = s.as_bytes();
-    if bytes.len() != 64 {
-        return Err(MemoError::InvalidPrevRcm);
-    }
-    let nibble = |b: u8| match b {
-        b'0'..=b'9' => Ok(b - b'0'),
-        b'a'..=b'f' => Ok(b - b'a' + 10),
-        _ => Err(MemoError::InvalidPrevRcm),
-    };
-    let mut out = [0u8; 32];
-    let (pairs, _) = bytes.as_chunks::<2>();
-    for (i, pair) in pairs.iter().enumerate() {
-        out[i] = (nibble(pair[0])? << 4) | nibble(pair[1])?;
-    }
-    Ok(out)
-}
-
-/// Validate a ZNS name: 1 to [`MAX_NAME_LEN`] bytes of `a-z 0-9 -`, with no
-/// leading or trailing hyphen (the DNS-label rule).
-pub fn validate_name(name: &str) -> Result<(), MemoError> {
-    let bytes = name.as_bytes();
-    if bytes.is_empty() || bytes.len() > MAX_NAME_LEN {
-        return Err(MemoError::InvalidName);
-    }
-    if bytes[0] == b'-' || bytes[bytes.len() - 1] == b'-' {
-        return Err(MemoError::InvalidName);
-    }
-    if !bytes
-        .iter()
-        .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'-'))
-    {
-        return Err(MemoError::InvalidName);
-    }
-    Ok(())
-}
-
-/// Encode a lifecycle *request* memo (user → registry), zero-padded to
-/// [`MEMO_SIZE`]. It round-trips through the strict grammar parser by construction.
-/// RELEASE requires an empty `ua`.
-pub fn encode_request(action: Action, name: &str, ua: &str) -> Result<[u8; MEMO_SIZE], MemoError> {
-    validate_name(name)?;
-    let verb = match action {
-        Action::Release if !ua.is_empty() => return Err(MemoError::FieldCount),
-        Action::Claim | Action::Update if ua.is_empty() => return Err(MemoError::EmptyArg),
-        Action::Claim => "claim",
-        Action::Update => "update",
-        Action::Release => "release",
-    };
-    match action {
-        Action::Release => encode(&["ZNS", verb, name]),
-        _ => encode(&["ZNS", verb, name, ua]),
-    }
-}
-
-/// Encode a Name Note's canonical memo (registry mint), zero-padded to
-/// [`MEMO_SIZE`]: the request fields plus `expires_at` and the `prev_rcm`
-/// witness that makes the note's binding verifiable standalone (WP §3.1).
-///
-/// A RELEASE must encode the released UA and exactly `none` for `expires_at`.
-pub fn encode_name_note(
-    action: Action,
-    name: &str,
-    ua: &str,
-    expires_at: &str,
-    prev_rcm: &[u8; 32],
-) -> Result<[u8; MEMO_SIZE], MemoError> {
-    validate_name(name)?;
-    let verb = match action {
-        Action::Release if expires_at != "none" => return Err(MemoError::FieldCount),
-        Action::Release if ua.is_empty() => return Err(MemoError::EmptyArg),
-        Action::Claim | Action::Update if ua.is_empty() => return Err(MemoError::EmptyArg),
-        Action::Claim => "claim",
-        Action::Update => "update",
-        Action::Release => "release",
-    };
-    let mut hex = [0u8; 64];
-    for (i, b) in prev_rcm.iter().enumerate() {
-        const DIGITS: &[u8; 16] = b"0123456789abcdef";
-        hex[2 * i] = DIGITS[(b >> 4) as usize];
-        hex[2 * i + 1] = DIGITS[(b & 0xf) as usize];
-    }
-    let hex = core::str::from_utf8(&hex).expect("hex digits are ASCII");
-    encode(&["ZNS", verb, name, ua, expires_at, hex])
-}
-
-/// Join `fields` with `:` into a zero-padded ZIP-302 memo.
-fn encode(fields: &[&str]) -> Result<[u8; MEMO_SIZE], MemoError> {
-    let len = fields.iter().map(|f| f.len()).sum::<usize>() + fields.len() - 1;
-    if len > MEMO_SIZE {
-        return Err(MemoError::TooLong);
-    }
-    let mut memo = [0u8; MEMO_SIZE];
-    let mut at = 0;
-    for (i, f) in fields.iter().enumerate() {
-        if i > 0 {
-            memo[at] = b':';
-            at += 1;
+    #[test]
+    fn parse_encode_round_trip() {
+        let texts = [
+            format!("ZNS:claim:alice:{}:none:{}", UA, ZERO_HEX),
+            format!("ZNS:claim:alice:{}:0:{}", UA, ZERO_HEX),
+            format!("ZNS:update:alice:{}:1775000000:{}", UA, HEX),
+            format!("ZNS:release:alice:{}:none:{}", UA, HEX),
+        ];
+        for text in &texts {
+            let m = Memo::from_bytes(text.as_bytes()).unwrap();
+            let note = NameNote::parse(&m).unwrap();
+            let encoded = note.encode().unwrap();
+            assert_eq!(encoded.as_array()[..text.len()], *text.as_bytes());
+            assert!(encoded.as_array()[text.len()..].iter().all(|&b| b == 0));
         }
-        memo[at..at + f.len()].copy_from_slice(f.as_bytes());
-        at += f.len();
     }
-    Ok(memo)
+
+    fn memo(text: &str) -> Memo {
+        Memo::from_bytes(text.as_bytes()).unwrap()
+    }
+
+    #[test]
+    fn memo_padding_must_be_canonical() {
+        let good = format!("ZNS:claim:alice:{}:none:{}", UA, ZERO_HEX);
+        let good_memo = memo(&good);
+        assert!(NameNote::parse(&good_memo).is_ok());
+
+        let mut bytes = *good_memo.as_array();
+        bytes[300] = b'x';
+        assert!(NameNote::parse(&Memo::from_array(bytes)).is_err());
+    }
+
+    #[test]
+    fn rejects_non_zns_memos() {
+        let m = memo(&format!("just a payment note:{}", HEX));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::NotZns));
+        let m = memo(&format!("ZEC:claim:alice:{}:none:{}", UA, HEX));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::NotZns));
+        assert_eq!(
+            NameNote::parse(&Memo::from_array([0u8; MEMO_SIZE])),
+            Err(MemoError::NotZns)
+        );
+
+        let mut b = [0u8; MEMO_SIZE];
+        b[0] = 0xff;
+        b[1] = 0xfe;
+        assert_eq!(
+            NameNote::parse(&Memo::from_array(b)),
+            Err(MemoError::NotZns)
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_grammar() {
+        let m = memo(&format!("ZNS:settle:alice:{}:none:{}", UA, HEX));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::UnknownVerb));
+        let m = memo("ZNS:claim:alice");
+        assert_eq!(NameNote::parse(&m), Err(MemoError::FieldCount));
+        let m = memo(&format!("ZNS:claim:alice:{}", UA));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::FieldCount));
+        let m = memo(&format!("ZNS:claim:alice:{}:none", UA));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::FieldCount));
+        let m = memo(&format!("ZNS:claim:alice:{}:none:{}:extra", UA, ZERO_HEX));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::FieldCount));
+        let m = memo(&format!("ZNS:claim:alice::none:{}", HEX));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::EmptyUa));
+        let m = memo(&format!("ZNS:claim:alice:{}:none:{}", UA, HEX));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidPrevRcm));
+        let zeros = "0".repeat(64);
+        let m = memo(&format!("ZNS:update:alice:{}:none:{}", UA, zeros));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidPrevRcm));
+        let m = memo(&format!("ZNS:release:alice:{}:1000:{}", UA, HEX));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidExpiry));
+        let m = memo(&format!("ZNS:claim:Alice:{}:none:{}", UA, ZERO_HEX));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidName));
+        let m = memo(&format!("ZNS:claim:alice:{}:01:{}", UA, ZERO_HEX));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidExpiry));
+    }
+
+    #[test]
+    fn chain_transitions() {
+        assert_eq!(prev_rcm_for(None, Action::Claim), Some(ZERO_PREV_RCM));
+        assert_eq!(
+            prev_rcm_for(
+                Some(&Tip {
+                    action: Action::Release,
+                    rcm: [9; 32]
+                }),
+                Action::Claim
+            ),
+            Some(ZERO_PREV_RCM)
+        );
+        assert_eq!(
+            prev_rcm_for(
+                Some(&Tip {
+                    action: Action::Claim,
+                    rcm: [1; 32]
+                }),
+                Action::Claim
+            ),
+            None
+        );
+        assert_eq!(
+            prev_rcm_for(
+                Some(&Tip {
+                    action: Action::Claim,
+                    rcm: [7; 32]
+                }),
+                Action::Update
+            ),
+            Some([7; 32])
+        );
+        assert_eq!(
+            prev_rcm_for(
+                Some(&Tip {
+                    action: Action::Claim,
+                    rcm: [7; 32]
+                }),
+                Action::Release
+            ),
+            Some([7; 32])
+        );
+        assert_eq!(prev_rcm_for(None, Action::Update), None);
+        assert_eq!(prev_rcm_for(None, Action::Release), None);
+        assert_eq!(
+            prev_rcm_for(
+                Some(&Tip {
+                    action: Action::Release,
+                    rcm: [7; 32]
+                }),
+                Action::Update
+            ),
+            None
+        );
+        assert_eq!(
+            prev_rcm_for(
+                Some(&Tip {
+                    action: Action::Release,
+                    rcm: [7; 32]
+                }),
+                Action::Release
+            ),
+            None
+        );
+        assert_eq!(
+            prev_rcm_for(
+                Some(&Tip {
+                    action: Action::Update,
+                    rcm: [0xab; 32]
+                }),
+                Action::Update
+            ),
+            Some([0xab; 32])
+        );
+        assert_eq!(
+            prev_rcm_for(
+                Some(&Tip {
+                    action: Action::Update,
+                    rcm: [0xab; 32]
+                }),
+                Action::Release
+            ),
+            Some([0xab; 32])
+        );
+        assert_eq!(
+            prev_rcm_for(
+                Some(&Tip {
+                    action: Action::Update,
+                    rcm: [0xab; 32]
+                }),
+                Action::Claim
+            ),
+            None
+        );
+    }
 }

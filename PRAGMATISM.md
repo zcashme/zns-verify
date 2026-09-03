@@ -17,22 +17,22 @@ Auditability, determinism, and minimality are the product. "Looks nice in Rust" 
 - `#![no_std]`
 - `#![forbid(unsafe_code)]`
 - `#![deny(missing_docs)]`
-- Default feature compiles **only** the pure verification kernel: `blake2b_simd`, `pasta_curves`, `sinsemilla`, `bitvec`, `group`.
+- Default feature compiles **only** the pure verification kernel: `blake2b_simd`, `pasta_curves`, `sinsemilla`, `group`.
 - The `decrypt` feature is **strictly opt-in**. It pulls orchard + ciphers + forces `std`. Never pull heavy Zcash crates into the default path.
 
 ## Architectural Principles
 
-1. **Single file for review**  
-   Everything lives in `src/lib.rs`. Modules are inlined ("Inlined modules for review"). Do not create a deep module tree unless the user explicitly asks to split for a very good reason. A reviewer must be able to hold the entire kernel in their head.
+1. **Reviewability**  
+   The implementation lives in a small number of focused modules under `src/` (lib.rs as thin coordinator + commitment.rs, memo.rs, verify.rs). A reviewer or agent must be able to hold the entire kernel in their head. Do not create a deep module tree or spread logic without strong justification.
 
 2. **Protocol fidelity over Rust idioms**  
    - Length-prefixed BLAKE2b construction is required for collision resistance across languages. Do not "make it nicer" with serde or higher-level combinators if they change the wire/hash bytes.
-   - The memo grammar is **strict** by design. Exact field counts, positional empty `ua` for RELEASE, lowercase hex only for `prev_rcm`. A lenient parser would let implementations drift - this parser is the single source of truth so that "agreement is by construction rather than by review."
-   - DNS label rules for names are exact (1-63 bytes, `a-z0-9-`, no leading/trailing hyphen). Do not relax or add "helpful" normalization.
+   - The memo grammar is **strict** by design. Exact field counts, lowercase hex only for `prev_rcm`. A lenient parser would let implementations drift - this parser is the single source of truth so that "agreement is by construction rather than by review."
+   - ZNS name rules are exact (1-63 bytes, `a-z 0-9`). Do not relax or add "helpful" normalization.
    - Cross-language test vectors in `tests/vectors.rs` are sacred. Existing vectors never change. They are the interop contract.
 
 3. **Recompute, don't trust**  
-   `verify_name_note` is the capstone: it re-derives `(ψ, rcm)` from `(action, name, ua, prev_rcm)` and recomputes the Sinsemilla `cmx`. The entire point is that the caller does not have to believe any external party.
+   `verify_name_note` is the capstone: it re-derives `(ψ, rcm)` from `(action, name, ua, expires_at, prev_rcm)` and recomputes the Sinsemilla `cmx`. The entire point is that the caller does not have to believe any external party.
 
 4. **One copy of the state machine**  
    `memo::prev_rcm_for` (re-exported at crate root) *is* the protocol rule. There must be exactly one implementation that registry minter, resolver, and verifier all use identically.
@@ -43,8 +43,6 @@ Auditability, determinism, and minimality are the product. "Looks nice in Rust" 
 ## Coding Style for This Crate
 
 - **Prefer boring and explicit.** Manual length prefixing, manual hex encoding/decoding, manual bit decomposition. When the spec demands byte-for-byte reproducibility, write the operations directly.
-- `#[allow(clippy::too_many_arguments)]` on `verify_name_note` is intentional. The protocol tuple is what it is; do not hide it behind a big struct unless you have a stronger reason than "fewer arguments."
-- Error types are small and C-like (`MemoError`). Do not reach for `thiserror` or rich error hierarchies in the core path unless it measurably improves the call sites that matter (wallets, resolvers, slash contracts).
 - Public API is deliberately small. Re-exports are curated. Adding new pub items requires justification against the "shared kernel" goal.
 - Comments should explain *why* the rule exists (protocol section, security property, cross-language requirement), not just what the code does.
 
@@ -72,7 +70,7 @@ When considering a change, ask:
 - Using `sinsemilla` + `pasta_curves` directly instead of `orchard::NoteCommitment` (removes a massive dependency for verifiers).
 - Pinning chacha20 / chacha20poly1305 versions to match `zcash_note_encryption` internals byte-for-byte inside the `decrypt` feature.
 - Keeping the `Action` enum as a simple exhaustive match rather than a fancy newtype or stringly-typed thing.
-- Accepting that `verify_name_note` has 9 arguments because that is the exact set a wallet holds after decrypting a note and parsing its memo.
+- Accepting that `verify_name_note` takes the parsed `NameNote` plus the note components (`g_d`, `pk_d`, `value`, `rho`, `cmx`), because that is the exact set a scanner holds after decrypting a note.
 - Writing the obvious loop for hex decoding instead of pulling in another crate.
 
 ## Anti-Patterns to Reject
