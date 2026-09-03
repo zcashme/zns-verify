@@ -22,7 +22,7 @@ fn parses_the_wp_golden_memo() {
             expires_at,
         } => {
             assert_eq!(name.as_str(), "alice");
-            assert!(ua.starts_with("u1897"));
+            assert!(ua.as_str().starts_with("u1897"));
             assert_eq!(expires_at, Expiry::NEVER);
         }
         _ => panic!("expected claim"),

@@ -34,14 +34,16 @@ pub fn verify_name_note_with_witness(
     let (expires_at, prev) = match note {
         NameNote::Claim { expires_at, .. } => (expires_at.field_bytes(), PrevRcm::ZERO),
         NameNote::Update {
-            expires_at, prev, ..
-        } => (expires_at.field_bytes(), *prev),
-        NameNote::Release { prev, .. } => ("none", *prev),
+            expires_at,
+            prev_rcm,
+            ..
+        } => (expires_at.field_bytes(), *prev_rcm),
+        NameNote::Release { prev_rcm, .. } => ("none", *prev_rcm),
     };
     let (psi, rcm) = zns_psi_rcm(
         note.action().as_bytes(),
         note.name().as_str().as_bytes(),
-        note.ua().as_bytes(),
+        note.ua().as_str().as_bytes(),
         expires_at.as_bytes(),
         prev.as_bytes(),
     );

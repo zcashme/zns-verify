@@ -66,6 +66,25 @@ impl<'a> Name<'a> {
     }
 }
 
+/// A validated Zcash unified address: non-empty.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Ua<'a>(&'a str);
+
+impl<'a> Ua<'a> {
+    /// Validates a UA per the ZNS memo rule.
+    pub fn parse(s: &'a str) -> Result<Self, MemoError> {
+        if s.is_empty() {
+            return Err(MemoError::EmptyUa);
+        }
+        Ok(Ua(s))
+    }
+
+    /// The validated UA.
+    pub const fn as_str(&self) -> &'a str {
+        self.0
+    }
+}
+
 /// The committed expiration of a registration: exactly `none`, or a
 /// canonical ASCII decimal Unix timestamp in whole seconds (WP §3.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -217,7 +236,7 @@ pub enum NameNote<'a> {
         /// The name being claimed.
         name: Name<'a>,
         /// The UA being bound.
-        ua: &'a str,
+        ua: Ua<'a>,
         /// The committed expiration.
         expires_at: Expiry<'a>,
     },
@@ -226,20 +245,20 @@ pub enum NameNote<'a> {
         /// The name being updated.
         name: Name<'a>,
         /// The new UA.
-        ua: &'a str,
+        ua: Ua<'a>,
         /// The carried-forward or extended expiration.
         expires_at: Expiry<'a>,
         /// The disclosed predecessor witness.
-        prev: PrevRcm,
+        prev_rcm: PrevRcm,
     },
     /// Terminate the registration, retaining the released UA.
     Release {
         /// The name being released.
         name: Name<'a>,
         /// The UA being released.
-        ua: &'a str,
+        ua: Ua<'a>,
         /// The disclosed predecessor witness.
-        prev: PrevRcm,
+        prev_rcm: PrevRcm,
     },
 }
 
@@ -256,10 +275,7 @@ impl<'a> NameNote<'a> {
         }
         let verb = fields.next().ok_or(MemoError::FieldCount)?;
         let name = Name::parse(fields.next().ok_or(MemoError::FieldCount)?)?;
-        let ua = fields.next().ok_or(MemoError::FieldCount)?;
-        if ua.is_empty() {
-            return Err(MemoError::EmptyUa);
-        }
+        let ua = Ua::parse(fields.next().ok_or(MemoError::FieldCount)?)?;
         let expires_field = fields.next().ok_or(MemoError::FieldCount)?;
         let prev_hex = fields.next().ok_or(MemoError::FieldCount)?;
         if fields.next().is_some() {
@@ -283,13 +299,17 @@ impl<'a> NameNote<'a> {
                 name,
                 ua,
                 expires_at: Expiry::from_field(expires_field)?,
-                prev,
+                prev_rcm: prev,
             }),
             "release" => {
                 if expires_field != "none" {
                     return Err(MemoError::InvalidExpiry);
                 }
-                Ok(NameNote::Release { name, ua, prev })
+                Ok(NameNote::Release {
+                    name,
+                    ua,
+                    prev_rcm: prev,
+                })
             }
             _ => Err(MemoError::UnknownVerb),
         }
@@ -310,7 +330,7 @@ impl<'a> NameNote<'a> {
                 const ZERO_HEX: [u8; 64] = [b'0'; 64];
                 (
                     name.as_str().as_bytes(),
-                    ua.as_bytes(),
+                    ua.as_str().as_bytes(),
                     expires_at.field_bytes().as_bytes(),
                     ZERO_HEX,
                 )
@@ -319,18 +339,18 @@ impl<'a> NameNote<'a> {
                 name,
                 ua,
                 expires_at,
-                prev,
+                prev_rcm,
             } => (
                 name.as_str().as_bytes(),
-                ua.as_bytes(),
+                ua.as_str().as_bytes(),
                 expires_at.field_bytes().as_bytes(),
-                prev.to_hex(),
+                prev_rcm.to_hex(),
             ),
-            NameNote::Release { name, ua, prev } => (
+            NameNote::Release { name, ua, prev_rcm } => (
                 name.as_str().as_bytes(),
-                ua.as_bytes(),
+                ua.as_str().as_bytes(),
                 b"none".as_slice(),
-                prev.to_hex(),
+                prev_rcm.to_hex(),
             ),
         };
         let mut memo = [0u8; MEMO_SIZE];
@@ -366,8 +386,8 @@ impl<'a> NameNote<'a> {
         }
     }
 
-    /// The UA field bytes; a release retains the released UA.
-    pub fn ua(&self) -> &'a str {
+    /// The validated UA; a release retains the released UA.
+    pub fn ua(&self) -> &Ua<'a> {
         match self {
             NameNote::Claim { ua, .. }
             | NameNote::Update { ua, .. }
@@ -389,7 +409,9 @@ impl<'a> NameNote<'a> {
     pub fn prev_rcm(&self) -> Option<PrevRcm> {
         match self {
             NameNote::Claim { .. } => None,
-            NameNote::Update { prev, .. } | NameNote::Release { prev, .. } => Some(*prev),
+            NameNote::Update { prev_rcm, .. } | NameNote::Release { prev_rcm, .. } => {
+                Some(*prev_rcm)
+            }
         }
     }
 }
