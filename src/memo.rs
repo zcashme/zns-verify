@@ -436,3 +436,263 @@ pub enum MemoError {
     /// The encoded memo would exceed [`MEMO_SIZE`].
     TooLong,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const UA: &str = "u1897y9pzw3zk6n9twtzu2z5kpkzw3hms2c54fpyv8lnr79m73tazljkk3veaxrtwncp66lf45p3f274xy2amqckx0sraje4v835yw8q0q";
+    const HEX: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+    const ZERO_HEX: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+
+    #[test]
+    fn name_validation() {
+        assert!(Name::parse("alice").is_ok());
+        assert!(Name::parse("a1").is_ok());
+        assert!(Name::parse("123").is_ok());
+        assert!(Name::parse(&"a".repeat(63)).is_ok());
+        assert!(Name::parse("").is_err());
+        assert!(Name::parse(&"a".repeat(64)).is_err());
+        assert!(Name::parse("Alice").is_err());
+        assert!(Name::parse("a-1").is_err());
+        assert!(Name::parse("al ice").is_err());
+        assert!(Name::parse("a.b").is_err());
+    }
+
+    #[test]
+    fn expiry_validation() {
+        assert_eq!(Expiry::from_field("none"), Ok(Expiry::NEVER));
+        assert!(Expiry::from_field("0").is_ok());
+        assert!(Expiry::from_field("1775000000").is_ok());
+        assert!(Expiry::from_field("01").is_err());
+        assert!(Expiry::from_field("+1").is_err());
+        assert!(Expiry::from_field("1.0").is_err());
+        assert!(Expiry::from_field("").is_err());
+        assert!(Expiry::from_field("None").is_err());
+        assert_eq!(Expiry::from_field("none").unwrap().field_bytes(), "none");
+    }
+
+    #[test]
+    fn prev_rcm_hex_codec() {
+        let prev = PrevRcm::from_hex(HEX).unwrap();
+        assert_eq!(prev.to_hex(), HEX.as_bytes());
+        assert!(PrevRcm::from_hex(&HEX.to_uppercase()).is_err());
+        assert!(PrevRcm::from_hex("abcd").is_err());
+        assert!(PrevRcm::ZERO.is_zero());
+        assert!(!prev.is_zero());
+    }
+
+    #[test]
+    fn ua_validation() {
+        assert!(Ua::parse("u1xxx").is_ok());
+        assert!(Ua::parse(UA).is_ok());
+        assert!(Ua::parse("").is_err());
+    }
+
+    #[test]
+    fn action_round_trip() {
+        for action in [Action::Claim, Action::Update, Action::Release] {
+            assert_eq!(Action::from_bytes(action.as_bytes()), Some(action));
+        }
+        assert_eq!(Action::from_bytes(b"Claim"), None);
+        assert_eq!(Action::from_bytes(b"CLAIM"), None);
+        assert_eq!(Action::from_bytes(b""), None);
+        assert_eq!(Action::from_bytes(b"transfer"), None);
+    }
+
+    #[test]
+    fn wp_golden_memo_parses_and_round_trips() {
+        let golden = format!("ZNS:claim:alice:{}:none:{}", UA, ZERO_HEX);
+        let m = Memo::from_bytes(golden.as_bytes()).unwrap();
+        let note = NameNote::parse(&m).unwrap();
+        match note {
+            NameNote::Claim {
+                name,
+                ua,
+                expires_at,
+            } => {
+                assert_eq!(name.as_str(), "alice");
+                assert!(ua.as_str().starts_with("u1897"));
+                assert_eq!(expires_at, Expiry::NEVER);
+            }
+            _ => panic!("expected claim"),
+        }
+        assert_eq!(note.encode().unwrap().as_array(), m.as_array());
+    }
+
+    #[test]
+    fn parse_encode_round_trip() {
+        let texts = [
+            format!("ZNS:claim:alice:{}:none:{}", UA, ZERO_HEX),
+            format!("ZNS:claim:alice:{}:0:{}", UA, ZERO_HEX),
+            format!("ZNS:update:alice:{}:1775000000:{}", UA, HEX),
+            format!("ZNS:release:alice:{}:none:{}", UA, HEX),
+        ];
+        for text in &texts {
+            let m = Memo::from_bytes(text.as_bytes()).unwrap();
+            let note = NameNote::parse(&m).unwrap();
+            let encoded = note.encode().unwrap();
+            assert_eq!(encoded.as_array()[..text.len()], *text.as_bytes());
+            assert!(encoded.as_array()[text.len()..].iter().all(|&b| b == 0));
+        }
+    }
+
+    fn memo(text: &str) -> Memo {
+        Memo::from_bytes(text.as_bytes()).unwrap()
+    }
+
+    #[test]
+    fn memo_padding_must_be_canonical() {
+        let good = format!("ZNS:claim:alice:{}:none:{}", UA, ZERO_HEX);
+        let good_memo = memo(&good);
+        assert!(NameNote::parse(&good_memo).is_ok());
+
+        let mut bytes = *good_memo.as_array();
+        bytes[300] = b'x';
+        assert!(NameNote::parse(&Memo::from_array(bytes)).is_err());
+    }
+
+    #[test]
+    fn rejects_non_zns_memos() {
+        let m = memo(&format!("just a payment note:{}", HEX));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::NotZns));
+        let m = memo(&format!("ZEC:claim:alice:{}:none:{}", UA, HEX));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::NotZns));
+        assert_eq!(
+            NameNote::parse(&Memo::from_array([0u8; MEMO_SIZE])),
+            Err(MemoError::NotZns)
+        );
+
+        let mut b = [0u8; MEMO_SIZE];
+        b[0] = 0xff;
+        b[1] = 0xfe;
+        assert_eq!(
+            NameNote::parse(&Memo::from_array(b)),
+            Err(MemoError::NotZns)
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_grammar() {
+        let m = memo(&format!("ZNS:settle:alice:{}:none:{}", UA, HEX));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::UnknownVerb));
+        let m = memo("ZNS:claim:alice");
+        assert_eq!(NameNote::parse(&m), Err(MemoError::FieldCount));
+        let m = memo(&format!("ZNS:claim:alice:{}", UA));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::FieldCount));
+        let m = memo(&format!("ZNS:claim:alice:{}:none", UA));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::FieldCount));
+        let m = memo(&format!("ZNS:claim:alice:{}:none:{}:extra", UA, ZERO_HEX));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::FieldCount));
+        let m = memo(&format!("ZNS:claim:alice::none:{}", HEX));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::EmptyUa));
+        let m = memo(&format!("ZNS:claim:alice:{}:none:{}", UA, HEX));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidPrevRcm));
+        let zeros = "0".repeat(64);
+        let m = memo(&format!("ZNS:update:alice:{}:none:{}", UA, zeros));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidPrevRcm));
+        let m = memo(&format!("ZNS:release:alice:{}:1000:{}", UA, HEX));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidExpiry));
+        let m = memo(&format!("ZNS:claim:Alice:{}:none:{}", UA, ZERO_HEX));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidName));
+        let m = memo(&format!("ZNS:claim:alice:{}:01:{}", UA, ZERO_HEX));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidExpiry));
+    }
+
+    #[test]
+    fn chain_transitions() {
+        assert_eq!(prev_rcm_for(None, Action::Claim), Some(ZERO_PREV_RCM));
+        assert_eq!(
+            prev_rcm_for(
+                Some(&Tip {
+                    action: Action::Release,
+                    rcm: [9; 32]
+                }),
+                Action::Claim
+            ),
+            Some(ZERO_PREV_RCM)
+        );
+        assert_eq!(
+            prev_rcm_for(
+                Some(&Tip {
+                    action: Action::Claim,
+                    rcm: [1; 32]
+                }),
+                Action::Claim
+            ),
+            None
+        );
+        assert_eq!(
+            prev_rcm_for(
+                Some(&Tip {
+                    action: Action::Claim,
+                    rcm: [7; 32]
+                }),
+                Action::Update
+            ),
+            Some([7; 32])
+        );
+        assert_eq!(
+            prev_rcm_for(
+                Some(&Tip {
+                    action: Action::Claim,
+                    rcm: [7; 32]
+                }),
+                Action::Release
+            ),
+            Some([7; 32])
+        );
+        assert_eq!(prev_rcm_for(None, Action::Update), None);
+        assert_eq!(prev_rcm_for(None, Action::Release), None);
+        assert_eq!(
+            prev_rcm_for(
+                Some(&Tip {
+                    action: Action::Release,
+                    rcm: [7; 32]
+                }),
+                Action::Update
+            ),
+            None
+        );
+        assert_eq!(
+            prev_rcm_for(
+                Some(&Tip {
+                    action: Action::Release,
+                    rcm: [7; 32]
+                }),
+                Action::Release
+            ),
+            None
+        );
+        assert_eq!(
+            prev_rcm_for(
+                Some(&Tip {
+                    action: Action::Update,
+                    rcm: [0xab; 32]
+                }),
+                Action::Update
+            ),
+            Some([0xab; 32])
+        );
+        assert_eq!(
+            prev_rcm_for(
+                Some(&Tip {
+                    action: Action::Update,
+                    rcm: [0xab; 32]
+                }),
+                Action::Release
+            ),
+            Some([0xab; 32])
+        );
+        assert_eq!(
+            prev_rcm_for(
+                Some(&Tip {
+                    action: Action::Update,
+                    rcm: [0xab; 32]
+                }),
+                Action::Claim
+            ),
+            None
+        );
+    }
+}
