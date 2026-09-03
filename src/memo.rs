@@ -43,8 +43,7 @@ impl Memo {
 /// The maximum name length in bytes (the ZNS name rule bound).
 pub const MAX_NAME_LEN: usize = 63;
 
-/// A validated ZNS name: 1 to [`MAX_NAME_LEN`] bytes of `a-z 0-9 -`, with no
-/// leading or trailing hyphen.
+/// A validated ZNS name: 1 to [`MAX_NAME_LEN`] bytes of `a-z 0-9`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Name<'a>(&'a str);
 
@@ -55,13 +54,7 @@ impl<'a> Name<'a> {
         if bytes.is_empty() || bytes.len() > MAX_NAME_LEN {
             return Err(MemoError::InvalidName);
         }
-        if bytes[0] == b'-' || bytes[bytes.len() - 1] == b'-' {
-            return Err(MemoError::InvalidName);
-        }
-        if !bytes
-            .iter()
-            .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'-'))
-        {
+        if !bytes.iter().all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9')) {
             return Err(MemoError::InvalidName);
         }
         Ok(Name(s))

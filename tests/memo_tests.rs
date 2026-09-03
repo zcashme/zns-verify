@@ -169,10 +169,9 @@ fn strict_field_counts() {
 #[test]
 fn enforces_zns_name_rules() {
     assert!(Name::parse("alice").is_ok());
-    assert!(Name::parse("a-1").is_ok());
+    assert!(Name::parse("a1").is_ok());
+    assert!(Name::parse("a-1").is_err());
     assert!(Name::parse("").is_err());
-    assert!(Name::parse("-alice").is_err());
-    assert!(Name::parse("alice-").is_err());
     assert!(Name::parse("Alice").is_err());
     assert!(Name::parse("al ice").is_err());
     assert!(Name::parse(&"a".repeat(63)).is_ok());
