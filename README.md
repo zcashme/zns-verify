@@ -44,8 +44,11 @@ the note's recipient.
 - `note_commitment_cmx(...)` -- recompute the Sinsemilla note commitment.
 - `verify_name_note(...)` -- both at once: recompute and compare against `cmx`,
   returning a plain `bool`.
-- `parse_name_note` -- parse a committed on-chain Name Note into a `NameNote`.
-- `encode_name_note` -- encode a Name Note memo (round-trip with the parser).
+- `verify_name_note_with_witness(...)` -- same, returning the re-derived `(ψ, rcm)`
+  opening on match.
+- `NameNote::parse(&Memo)` / `note.encode()` -- the canonical Name Note memo
+  grammar as a three-variant enum (`Claim` / `Update` / `Release`) with validated
+  field types (`Name`, `Ua`, `Expiry`, `PrevRcm`).
 - `prev_rcm_for` -- the per-name transition rule: which `prev_rcm` an action must extend.
 - The canonical strict Name Note memo grammar (one parser for registry, resolver, etc.).
 - Out of scope: request memos (user -> Mint treasury intake). They are never
@@ -64,14 +67,15 @@ unchanged into a wallet, SDK, resolver, enclave, or embedded target.
   the ZIP-212 `cmx` check. Uses `IronwoodDomain` (V3 note plaintexts, lead byte
   `0x03`). Useful for scanning Name Notes. Pulls `orchard` + pinned ciphers and
   forces `std`.
-- `NameNote<'a>` -- clean struct representing a committed on-chain Name Note
-  (with guaranteed `prev_rcm` witness).
-- Strict Name Note memo grammar with exact field counts, ZNS name rules,
-  and 64-lowercase-hex `prev_rcm`.
-- `Action` enum and name validation (`validate_name`).
+- `NameNote<'a>` -- three-variant enum representing a committed on-chain Name Note.
+- `Name<'a>`, `Ua<'a>`, `Expiry<'a>`, `PrevRcm` -- validated domain types.
+- `Memo` -- zero-padded ZIP-302 memo with canonical padding enforcement.
+- `Rho`, `ExtractedNoteCommitment` -- newtypes with canonical byte codecs.
+- Strict Name Note memo grammar with exact field counts, ZNS name rules
+  (`a-z 0-9`, 1-63 bytes), and 64-lowercase-hex `prev_rcm`.
+- `Action` enum and name validation (`Name::parse`).
 - Lifecycle / chain rules (`prev_rcm_for`, `Tip`, `ZERO_PREV_RCM`).
 - `MemoError` for all grammar violations.
-- `base_from_bytes` helper.
 - Re-exports for `pallas` and `PrimeField` (so you don't need direct curve dependencies).
 - `#![forbid(unsafe_code)]` and `#![deny(missing_docs)]`.
 - "Recompute, don't trust" design -- fully standalone verification with no
@@ -90,12 +94,12 @@ and minimal dependencies. Production crates: `blake2b_simd`, `pasta_curves`,
 ```rust
 use zns_verify::{verify_name_note, ExtractedNoteCommitment, Memo, NameNote, Rho};
 
-# let g_d: [u8; 32] = [0x11u8; 32];
-# let pk_d: [u8; 32] = [0x22u8; 32];
+# let g_d: [u8; 32] = hex::decode("de4338f2ab9fd8300a3a1c20dd690ce27026c6001c295d7c641a067ce809b11e").unwrap().try_into().unwrap();
+# let pk_d: [u8; 32] = hex::decode("6df609f5710f3b5deecd4ee4b8f0173b44af6cf8918ac00269526031ba628996").unwrap().try_into().unwrap();
 # let rho = Rho::from_bytes(&[0x33u8; 32]).unwrap();
 # let on_chain_cmx = ExtractedNoteCommitment::from_bytes(
 #     &<[u8; 32]>::try_from(
-#         hex::decode("53accd0df1c569731e8ad4fc8bcb483b953e3713ecc7a95202442daa026c4a02").unwrap(),
+#         hex::decode("cc320736a0c1df1e4ffcee2b64aa73a9e6d06bb218e155a6fef422e1ecb1f70c").unwrap(),
 #     )
 #     .unwrap(),
 # )
@@ -103,7 +107,7 @@ use zns_verify::{verify_name_note, ExtractedNoteCommitment, Memo, NameNote, Rho}
 
 // Name Note memo (from on chain)
 let memo = Memo::from_bytes(
-    b"ZNS:claim:alice:u1xxx:none:0000000000000000000000000000000000000000000000000000000000000000",
+    b"ZNS:claim:alice:u1897y9pzw3zk6n9twtzu2z5kpkzw3hms2c54fpyv8lnr79m73tazljkk3veaxrtwncp66lf45p3f274xy2amqckx0sraje4v835yw8q0q:none:0000000000000000000000000000000000000000000000000000000000000000",
 )?;
 let note = NameNote::parse(&memo)?;
 let ok = verify_name_note(

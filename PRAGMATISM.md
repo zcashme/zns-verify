@@ -27,12 +27,12 @@ Auditability, determinism, and minimality are the product. "Looks nice in Rust" 
 
 2. **Protocol fidelity over Rust idioms**  
    - Length-prefixed BLAKE2b construction is required for collision resistance across languages. Do not "make it nicer" with serde or higher-level combinators if they change the wire/hash bytes.
-   - The memo grammar is **strict** by design. Exact field counts, positional empty `ua` for RELEASE, lowercase hex only for `prev_rcm`. A lenient parser would let implementations drift - this parser is the single source of truth so that "agreement is by construction rather than by review."
-   - ZNS name rules are exact (1-63 bytes, `a-z0-9-`, no leading/trailing hyphen). Do not relax or add "helpful" normalization.
+   - The memo grammar is **strict** by design. Exact field counts, lowercase hex only for `prev_rcm`. A lenient parser would let implementations drift - this parser is the single source of truth so that "agreement is by construction rather than by review."
+   - ZNS name rules are exact (1-63 bytes, `a-z 0-9`). Do not relax or add "helpful" normalization.
    - Cross-language test vectors in `tests/vectors.rs` are sacred. Existing vectors never change. They are the interop contract.
 
 3. **Recompute, don't trust**  
-   `verify_name_note` is the capstone: it re-derives `(ψ, rcm)` from `(action, name, ua, prev_rcm)` and recomputes the Sinsemilla `cmx`. The entire point is that the caller does not have to believe any external party.
+   `verify_name_note` is the capstone: it re-derives `(ψ, rcm)` from `(action, name, ua, expires_at, prev_rcm)` and recomputes the Sinsemilla `cmx`. The entire point is that the caller does not have to believe any external party.
 
 4. **One copy of the state machine**  
    `memo::prev_rcm_for` (re-exported at crate root) *is* the protocol rule. There must be exactly one implementation that registry minter, resolver, and verifier all use identically.
@@ -43,8 +43,6 @@ Auditability, determinism, and minimality are the product. "Looks nice in Rust" 
 ## Coding Style for This Crate
 
 - **Prefer boring and explicit.** Manual length prefixing, manual hex encoding/decoding, manual bit decomposition. When the spec demands byte-for-byte reproducibility, write the operations directly.
-- `#[allow(clippy::too_many_arguments)]` on `verify_name_note` is intentional. The protocol tuple is what it is; do not hide it behind a big struct unless you have a stronger reason than "fewer arguments."
-- Error types are small and C-like (`MemoError`). Do not reach for `thiserror` or rich error hierarchies in the core path unless it measurably improves the call sites that matter (wallets, resolvers, slash contracts).
 - Public API is deliberately small. Re-exports are curated. Adding new pub items requires justification against the "shared kernel" goal.
 - Comments should explain *why* the rule exists (protocol section, security property, cross-language requirement), not just what the code does.
 

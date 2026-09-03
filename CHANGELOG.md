@@ -43,8 +43,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `verify_name_note_with_witness` as the primitive returning the re-derived
   `(ψ, rcm)` opening. `Rho` and `ExtractedNoteCommitment` are newtypes with
   canonical codecs.
-- Added `subtle` as a dependency (constant-time equality on the commitment
-  type, matching upstream `ExtractedNoteCommitment`).
 
 - Name Notes include `expires_at` in the memo and the ZNS hash (WP §3).
   `zns_psi_rcm` / `verify_name_note` take `expires_at` as raw field bytes

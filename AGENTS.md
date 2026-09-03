@@ -49,7 +49,7 @@ Auditability, determinism, and minimality are the product. "Looks nice in Rust" 
 2. **Protocol fidelity over Rust idioms**  
    - Length-prefixed BLAKE2b construction is required for collision resistance across languages. Do not "make it nicer" with serde or higher-level combinators if they change the wire or hash bytes.
    - The memo grammar is **strict** by design. Exact field counts (six fields for Name Notes), positional fields, RELEASE retains the released UA and must encode `none` for `expires_at`, lowercase hex only for `prev_rcm`. A lenient parser would let implementations drift. This parser is the single source of truth so that "agreement is by construction rather than by review."
-   - ZNS name rules are exact (1-63 bytes, `a-z0-9-`, no leading or trailing hyphen). Do not relax or add "helpful" normalization.
+   - ZNS name rules are exact (1-63 bytes, `a-z 0-9`). Do not relax or add "helpful" normalization.
    - Cross-language test vectors in `tests/vectors.rs` are sacred. Existing vectors never change. They are the interop contract.
 
 3. **Recompute, don't trust**  
@@ -64,8 +64,6 @@ Auditability, determinism, and minimality are the product. "Looks nice in Rust" 
 ## Coding Style for This Crate
 
 - **Prefer boring and explicit.** Manual length prefixing, manual hex encoding/decoding, manual bit decomposition. When the spec demands byte-for-byte reproducibility, write the operations directly.
-- `#[allow(clippy::too_many_arguments)]` on `verify_name_note` is intentional. The protocol tuple is what it is; do not hide it behind a big struct unless you have a stronger reason than "fewer arguments."
-- Error types are small and C-like (`MemoError`). Do not reach for `thiserror` or rich error hierarchies in the core path unless it measurably improves the call sites that matter (wallets, resolvers, slash contracts).
 - Public API is deliberately small. Re-exports are curated. Adding new pub items requires justification against the "shared kernel" goal.
 - Comments should explain *why* the rule exists (protocol section, security property, cross-language requirement), not just what the code does.
 
@@ -132,8 +130,7 @@ Everything else is secondary.
 - `README.md` -- high-level description and usage examples.
 - `PRAGMATISM.md` -- the full original pragmatism prompt (source of many rules above).
 - `src/lib.rs`, `src/memo.rs`, `src/commitment.rs`, `src/verify.rs` -- the implementation.
-- `tests/vectors.rs` -- sacred cross-language contract and pins.
-- `docs/code_review.md` -- briefing for external auditors (reflects current structure).
+- `tests/vectors.rs` -- cross-language interop contract and pins.
 
 When editing, the source code is authoritative. Describe behavior based on what the code actually does.
 
