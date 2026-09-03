@@ -129,7 +129,7 @@ pub struct PrevRcm([u8; 32]);
 
 impl PrevRcm {
     /// The 64-zero predecessor of a claim (WP §3.1).
-    pub const ZERO: Self = PrevRcm([0u8; 32]);
+    pub const ZERO: Self = PrevRcm(ZERO_PREV_RCM);
 
     /// Decodes exactly 64 lowercase hex chars.
     pub fn from_hex(s: &str) -> Result<Self, MemoError> {
@@ -284,8 +284,10 @@ impl<'a> NameNote<'a> {
         }
         let prev = PrevRcm::from_hex(prev_hex)?;
 
-        match verb {
-            "claim" => {
+        let action = Action::from_bytes(verb.as_bytes()).ok_or(MemoError::UnknownVerb)?;
+
+        match action {
+            Action::Claim => {
                 if !prev.is_zero() {
                     return Err(MemoError::InvalidPrevRcm);
                 }
@@ -295,14 +297,14 @@ impl<'a> NameNote<'a> {
                     expires_at: Expiry::from_field(expires_field)?,
                 })
             }
-            "update" | "release" if prev.is_zero() => Err(MemoError::InvalidPrevRcm),
-            "update" => Ok(NameNote::Update {
+            Action::Update | Action::Release if prev.is_zero() => Err(MemoError::InvalidPrevRcm),
+            Action::Update => Ok(NameNote::Update {
                 name,
                 ua,
                 expires_at: Expiry::from_field(expires_field)?,
                 prev_rcm: prev,
             }),
-            "release" => {
+            Action::Release => {
                 if expires_field != "none" {
                     return Err(MemoError::InvalidExpiry);
                 }
@@ -312,7 +314,6 @@ impl<'a> NameNote<'a> {
                     prev_rcm: prev,
                 })
             }
-            _ => Err(MemoError::UnknownVerb),
         }
     }
 
