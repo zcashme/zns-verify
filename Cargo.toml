@@ -35,17 +35,10 @@ sinsemilla = "0.1"
 group = { version = "0.13", default-features = false }
 
 # ── `decrypt` (ZNS Ironwood trial decrypt, optional) ─────────────────────────
-# Temporary: patch points at the orchard PR branch until zcashme/orchard#7
-# merges and a new tag is cut. Will revert to a git tag after.
-orchard = { package = "zns-orchard", version = "0.15.5", default-features = false, features = ["std", "unsafe-zns"], optional = true }
+# The orchard fork with unsafe-zns, pinned to its release tag.
+orchard = { git = "https://github.com/zcashme/orchard.git", tag = "zns-orchard-v0.15.5.2", default-features = false, features = ["std", "unsafe-zns"], optional = true }
 zcash_protocol = { version = "0.10", default-features = false, features = ["std"], optional = true }
 
 [dev-dependencies]
 hex = "0.4"
 hex-literal = "0.4"
-
-# Same local orchard as seer-sync / zns-resolver when this crate is the root.
-[patch.crates-io]
-# Temporary: patch points at the orchard PR branch until zcashme/orchard#7
-# merges and a new tag is cut. Will revert to a git tag after.
-zns-orchard = { git = "https://github.com/zcashme/orchard.git", branch = "feat/zns-domain-parity" }

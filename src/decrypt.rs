@@ -1,5 +1,6 @@
 //! Trial decryption for Name Notes
 
+use crate::ExtractedNoteCommitment;
 use orchard::{
     keys::{FullViewingKey, PreparedIncomingViewingKey as OrchardPreparedIvk, Scope},
     note_encryption::{CompactAction, ZnsIronwoodDomain},
@@ -11,29 +12,54 @@ use zcash_protocol::memo::MemoBytes;
 pub fn try_compact_ironwood(
     fvk: &FullViewingKey,
     action: &CompactAction,
-) -> Option<(orchard::Note, orchard::Address)> {
+) -> Option<(orchard::Note, orchard::Address, ExtractedNoteCommitment)> {
     let ivk = OrchardPreparedIvk::new(&fvk.to_ivk(Scope::External));
-    ZnsIronwoodDomain::for_compact_action(action).try_decrypt_compact(action, &ivk)
+    let (candidate, recipient) =
+        ZnsIronwoodDomain::for_compact_action(action).try_decrypt_compact(action, &ivk)?;
+    let cmx = ExtractedNoteCommitment::from_bytes(&candidate.cmx().to_bytes())?;
+    Some((*candidate.note(), recipient, cmx))
 }
 
 /// Full-transaction trial decryption returning the memo; validate with [`crate::verify_name_note`].
 pub fn try_decrypt_ironwood<A>(
     action: &Action<A>,
     fvk: &FullViewingKey,
-) -> Option<(orchard::Note, orchard::Address, MemoBytes)> {
+) -> Option<(
+    orchard::Note,
+    orchard::Address,
+    MemoBytes,
+    ExtractedNoteCommitment,
+)> {
     let ivk = OrchardPreparedIvk::new(&fvk.to_ivk(Scope::External));
-    let (note, recipient, memo) =
-        ZnsIronwoodDomain::for_action(action).try_decrypt(action, &ivk, |_, _, _| 1u8.into())?;
-    Some((note, recipient, MemoBytes::from_bytes(&memo).ok()?))
+    let (candidate, recipient, memo) =
+        ZnsIronwoodDomain::for_action(action).try_decrypt(action, &ivk)?;
+    let cmx = ExtractedNoteCommitment::from_bytes(&candidate.cmx().to_bytes())?;
+    Some((
+        *candidate.note(),
+        recipient,
+        MemoBytes::from_bytes(&memo).ok()?,
+        cmx,
+    ))
 }
 
 /// Outgoing recovery via the FVK's OVK proving the note was created by this account.
 pub fn try_decrypt_ironwood_sent<A>(
     action: &Action<A>,
     fvk: &FullViewingKey,
-) -> Option<(orchard::Note, orchard::Address, MemoBytes)> {
+) -> Option<(
+    orchard::Note,
+    orchard::Address,
+    MemoBytes,
+    ExtractedNoteCommitment,
+)> {
     let ovk = fvk.to_ovk(Scope::External);
-    let (note, recipient, memo) =
+    let (candidate, recipient, memo) =
         ZnsIronwoodDomain::for_action(action).try_decrypt_sent(action, &ovk)?;
-    Some((note, recipient, MemoBytes::from_bytes(&memo).ok()?))
+    let cmx = ExtractedNoteCommitment::from_bytes(&candidate.cmx().to_bytes())?;
+    Some((
+        *candidate.note(),
+        recipient,
+        MemoBytes::from_bytes(&memo).ok()?,
+        cmx,
+    ))
 }
