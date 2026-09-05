@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Action::as_str()`: the canonical ASCII spelling of an action as text.
+  `Action::as_bytes()` now derives from it, so the byte and text forms share
+  one source and cannot drift. Downstream code (registry, resolver, JSON-RPC)
+  should use this instead of hand-rolling the verb spelling.
 - GitHub Actions CI on pull requests and pushes to `master`: default and
   `decrypt` tests, clippy `-D warnings`, rustfmt, `cargo doc --no-deps
   --all-features`, and llvm-cov coverage artifacts (no percentage gate).
