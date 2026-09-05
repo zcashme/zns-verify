@@ -184,13 +184,20 @@ pub enum Action {
 }
 
 impl Action {
+    /// The canonical ASCII spelling used in memos, hash inputs, and any
+    /// downstream rendering or storage of an action. Single source of the
+    /// spelling: `as_bytes` derives from it, so the two cannot drift.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Action::Claim => "claim",
+            Action::Update => "update",
+            Action::Release => "release",
+        }
+    }
+
     /// The canonical ASCII bytes used in hash inputs.
     pub const fn as_bytes(self) -> &'static [u8] {
-        match self {
-            Action::Claim => b"claim",
-            Action::Update => b"update",
-            Action::Release => b"release",
-        }
+        self.as_str().as_bytes()
     }
 
     /// Parses the canonical ASCII form, case-sensitive.
@@ -489,6 +496,19 @@ mod tests {
         assert!(Ua::parse("u1xxx").is_ok());
         assert!(Ua::parse(UA).is_ok());
         assert!(Ua::parse("").is_err());
+    }
+
+    #[test]
+    fn action_spelling_is_canonical() {
+        assert_eq!(Action::Claim.as_str(), "claim");
+        assert_eq!(Action::Update.as_str(), "update");
+        assert_eq!(Action::Release.as_str(), "release");
+        // as_bytes must stay the byte view of as_str: the spelling is
+        // load-bearing, it is length-prefixed into zns_psi_rcm (WP §3.3).
+        for action in [Action::Claim, Action::Update, Action::Release] {
+            assert_eq!(action.as_str().as_bytes(), action.as_bytes());
+            assert_eq!(Action::from_bytes(action.as_bytes()), Some(action));
+        }
     }
 
     #[test]
