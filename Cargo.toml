@@ -1,6 +1,6 @@
 [package]
 name = "zns-verify"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 description = "ZcashName (ZNS) hash, action, and memo primitives -- used by Registry minters and Resolvers"
 license = "MIT"
@@ -26,13 +26,13 @@ decrypt = [
 
 [dependencies]
 blake2b_simd = { version = "1", default-features = false }
-pasta_curves = { version = "0.5", default-features = false }
+pasta_curves = { version = "0.6", default-features = false }
 
 # For computing the expected Sinsemilla note commitment from the
 # caller-supplied (g_d, pk_d, v, ρ, ψ, rcm) -- entirely from crates.io,
 # no orchard fork required.
-sinsemilla = "0.1"
-group = { version = "0.13", default-features = false }
+sinsemilla = "0.2"
+group = { version = "0.14", default-features = false }
 
 # ── `decrypt` (ZNS Ironwood trial decrypt, optional) ─────────────────────────
 # The orchard fork with unsafe-zns, pinned to its release tag.
