@@ -28,8 +28,8 @@ pub struct Transition<'a, 'n> {
     pub live_anchors: &'a [[u8; 32]],
     /// The transaction contains one Name Note.
     pub single_name_note: bool,
-    /// A claim's only registry output is its zero-value successor anchor.
-    /// Ignored for an update or a release.
+    /// Besides the candidate Name Note, a claim's only registry output is its
+    /// zero-value successor anchor. Ignored for an update or a release.
     pub claim_successor: bool,
 }
 

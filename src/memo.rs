@@ -225,8 +225,10 @@ pub struct Tip {
 
 /// The `prev_rcm` an `action` must extend given the name's current tip.
 ///
-/// Chain shape only. [`crate::authorized_transition`] also requires the
-/// transaction to reveal that tip's nullifier.
+/// Chain shape only. For an update or a release,
+/// [`crate::authorized_transition`] also requires the transaction to reveal
+/// that tip's nullifier. A claim spends a live claim anchor instead, never the
+/// tip.
 pub fn prev_rcm_for(tip: Option<&Tip>, action: Action) -> Option<[u8; 32]> {
     match (action, tip) {
         (Action::Claim, None) => Some(ZERO_PREV_RCM),
