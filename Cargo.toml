@@ -1,6 +1,6 @@
 [package]
 name = "zns-verify"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2021"
 description = "ZcashName (ZNS) hash, action, and memo primitives -- used by Registry minters and Resolvers"
 license = "MIT"
@@ -44,4 +44,5 @@ zcash_protocol = { version = "0.11", default-features = false, features = ["std"
 [dev-dependencies]
 hex = "0.4"
 hex-literal = "0.4"
+proptest = "1"
 rand = "0.10"
