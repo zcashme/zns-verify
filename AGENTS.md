@@ -23,6 +23,8 @@ path.
 
 - `zns_psi_rcm(action, name, ua, expires_at, prev_rcm) -> (psi, rcm)` -- re-derive the deterministic commitment randomness.
 - `note_commitment_cmx(...)` -- recompute the Sinsemilla note commitment.
+- `name_note_nullifier(...)` -- the nullifier a Name Note reveals when spent, from the same components plus `nk`; the tip `authorized_transition` compares against.
+- `diversify_hash(d)` -- `g_d` from a diversifier.
 - `verify_name_note(...)` -- recompute and compare against cmx; `true` means consistent, not authorised.
 - `authorized_transition(...)` -- the Registry spend rule. True only together with `verify_name_note`.
 - `NameNote::parse(&Memo)` / `note.encode()` -- the canonical Name Note memo grammar as a three-variant enum with validated field types (`Name`, `Expiry`, `PrevRcm`). One strict parser shared by registry, resolver, and slash contract. Agreement is by construction.
@@ -41,8 +43,9 @@ Auditability, determinism, and minimality are the product. "Looks nice in Rust" 
 - `#![no_std]`
 - `#![forbid(unsafe_code)]`
 - `#![deny(missing_docs)]`
-- Default feature compiles **only** the pure verification kernel: `blake2b_simd`, `pasta_curves`, `sinsemilla`, `group`.
-- The `decrypt` feature is **strictly opt-in**. It pulls orchard + ciphers + forces `std`. Never pull heavy Zcash crates into the default path.
+- Default feature compiles **only** the pure verification kernel: `blake2b_simd`, `pasta_curves`, `sinsemilla`, `group`, `halo2_poseidon` (PRF^nfOrchard, for the nullifier).
+- The `decrypt` feature is **strictly opt-in**. It pulls upstream `orchard` and forces `std`. Never pull heavy Zcash crates into the default path.
+- `decrypt` depends on crates.io `orchard`, never the `zns-orchard` fork. The fork is one more package named `orchard` in a consumer's graph, and its types do not mix with the ones `zcash_keys` hands out. Everything the relaxed domain needs is public upstream.
 
 ## Architectural Principles
 
@@ -94,7 +97,7 @@ When considering a change, ask:
 ## What "Pragmatic" Means Here
 
 - Using `sinsemilla` + `pasta_curves` directly instead of `orchard::NoteCommitment` (removes a massive dependency for verifiers).
-- Pinning chacha20 / chacha20poly1305 versions to match `zcash_note_encryption` internals byte-for-byte inside the `decrypt` feature.
+- Wrapping upstream `IronwoodDomain` by delegation inside the `decrypt` feature, overriding only `cmstar`, instead of carrying a second copy of note encryption.
 - Keeping the `Action` enum as a simple exhaustive match rather than a fancy newtype or stringly-typed thing.
 - Accepting that `verify_name_note` takes the parsed `NameNote` plus the note components (`g_d`, `pk_d`, `value`, `rho`, `cmx`), because that is the exact set a scanner holds after decrypting a note.
 - Writing the obvious loop for hex decoding instead of pulling in another crate.

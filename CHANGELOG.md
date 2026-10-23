@@ -9,10 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- `decrypt` builds against the stable zcash stack: `zcash_protocol 0.11`
-  (was `=0.11.0-pre.0`) and the `zns-orchard-v0.16.0` tag (was
-  `zns-orchard-v0.16.0-pre.1`, same commit). Consumers on the final crates
-  can now resolve this crate. The default kernel build is unchanged.
+- `decrypt` builds on crates.io `orchard 0.16` and `zcash_protocol 0.11`
+  instead of the `zns-orchard` git fork and a `=0.11.0-pre.0` pin.
+  `ZnsIronwoodDomain` and `CandidateNote` now live in `zns_verify::decrypt`,
+  wrapping upstream `IronwoodDomain`. The crate publishes with the feature
+  intact, and a consumer gets one orchard, shared with `zcash_keys`.
+
+### Added
+
+- `name_note_nullifier` and `diversify_hash` in the kernel, orchard-free.
+  The `decrypt` function of the same name keeps its signature and calls it.
+  Pulls `halo2_poseidon` for PRF^nfOrchard.
 - Document the verification **trust boundary**: `verify_name_note` checks that
   a Name Note's fields reproduce its `cmx`, not that the Registry authorised the
   note. README (new Trust boundary section), AGENTS.md, PRAGMATISM.md, and the
