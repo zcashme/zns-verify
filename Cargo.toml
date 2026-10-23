@@ -10,31 +10,18 @@ keywords = ["zcash", "zns", "orchard", "verification", "names"]
 categories = ["cryptography", "cryptography::cryptocurrencies"]
 
 [features]
-# Default is the pure verification kernel: no_std, no orchard, pasta/sinsemilla
-# math only -- droppable into a wallet, SDK, enclave, or embedded target.
+# The no_std verification kernel.
 default = []
-
-# `decrypt`: Ironwood trial decryption that accepts a Name Note's cmx as
-# published. Pulls orchard and forces std; verification alone never needs it.
-decrypt = [
-    "dep:orchard",
-    "dep:zcash_note_encryption",
-    "dep:zcash_protocol",
-]
+# Trial-decrypt Name Notes on upstream orchard. Forces std.
+decrypt = ["dep:orchard", "dep:zcash_note_encryption", "dep:zcash_protocol"]
 
 [dependencies]
 blake2b_simd = { version = "1", default-features = false }
 pasta_curves = { version = "0.6", default-features = false }
-
-# For computing the expected Sinsemilla note commitment from the
-# caller-supplied (g_d, pk_d, v, ρ, ψ, rcm) -- entirely from crates.io,
-# no orchard fork required.
 sinsemilla = "0.2"
 group = { version = "0.14", default-features = false }
 
-# ── `decrypt` (ZNS Ironwood trial decrypt, optional) ─────────────────────────
-# Upstream orchard: the same package every zcash crate depends on, so a
-# consumer never ends up with two orchards.
+# decrypt
 orchard = { version = "0.16", default-features = false, features = ["std"], optional = true }
 zcash_note_encryption = { version = "0.5.1", optional = true }
 zcash_protocol = { version = "0.11", default-features = false, features = ["std"], optional = true }
