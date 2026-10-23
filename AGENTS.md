@@ -42,7 +42,8 @@ Auditability, determinism, and minimality are the product. "Looks nice in Rust" 
 - `#![forbid(unsafe_code)]`
 - `#![deny(missing_docs)]`
 - Default feature compiles **only** the pure verification kernel: `blake2b_simd`, `pasta_curves`, `sinsemilla`, `group`.
-- The `decrypt` feature is **strictly opt-in**. It pulls orchard + ciphers + forces `std`. Never pull heavy Zcash crates into the default path.
+- The `decrypt` feature is **strictly opt-in**. It pulls upstream `orchard` and forces `std`. Never pull heavy Zcash crates into the default path.
+- `decrypt` depends on crates.io `orchard`, never the `zns-orchard` fork, so a consumer has one orchard, shared with `zcash_keys`.
 
 ## Architectural Principles
 
@@ -94,7 +95,7 @@ When considering a change, ask:
 ## What "Pragmatic" Means Here
 
 - Using `sinsemilla` + `pasta_curves` directly instead of `orchard::NoteCommitment` (removes a massive dependency for verifiers).
-- Pinning chacha20 / chacha20poly1305 versions to match `zcash_note_encryption` internals byte-for-byte inside the `decrypt` feature.
+- Wrapping upstream `IronwoodDomain` by delegation inside the `decrypt` feature, overriding only `cmstar`, instead of carrying a second copy of note encryption.
 - Keeping the `Action` enum as a simple exhaustive match rather than a fancy newtype or stringly-typed thing.
 - Accepting that `verify_name_note` takes the parsed `NameNote` plus the note components (`g_d`, `pk_d`, `value`, `rho`, `cmx`), because that is the exact set a scanner holds after decrypting a note.
 - Writing the obvious loop for hex decoding instead of pulling in another crate.

@@ -36,9 +36,10 @@ the note's recipient.
 - Standard ZIP-212 derives `rcm` from `rseed` and checks the recomputed `cmx` against the on-chain value.
 - A Name Note's `rcm` comes from `zns_psi_rcm(action, name, ua, expires_at, prev_rcm)`, not `rseed`.
 - So `zcash_note_encryption`'s `try_decrypt` returns `None` for every valid Name Note.
-- The `decrypt` feature uses `IronwoodDomain` (accepts V3 lead byte `0x03`),
-  skips the `cmx` check, but keeps the AEAD authentication; the `cmx`
-  consistency check moves to `verify_name_note`.
+- The `decrypt` feature wraps upstream `IronwoodDomain` (accepts V3 lead byte
+  `0x03`), passes the published `cmx` through instead of re-deriving it, and
+  keeps the AEAD authentication; the `cmx` consistency check moves to
+  `verify_name_note`.
 
 ## What it does
 
@@ -53,8 +54,6 @@ the note's recipient.
 - `authorized_transition(...)` -- the Registry spend check: the transaction
   reveals this name's live tip (or exactly one claim anchor), and `prev_rcm`
   extends that tip. Both this and `verify_name_note` have to hold.
-- `name_note_nullifier(...)` (`decrypt`) -- the nullifier to store as the next
-  tip, from the decrypted note and the `(ψ, rcm)` opening.
 - `NameNote::parse(&Memo)` / `note.encode()` -- the canonical Name Note memo
   grammar as a three-variant enum (`Claim` / `Update` / `Release`) with validated
   field types (`Name`, `Ua`, `Expiry`, `PrevRcm`).
@@ -77,9 +76,9 @@ with the nullifiers it stored; `verify_name_note` alone does not resolve a name
   Small enough for wallets, SDKs, enclaves, or embedded targets (see [Trust
   boundary](#trust-boundary) for what it does not check).
 - **`decrypt` feature** (opt-in): relaxed Ironwood trial decryption that skips
-  the ZIP-212 `cmx` check. Uses `IronwoodDomain` (V3 note plaintexts, lead byte
-  `0x03`). Useful for scanning Name Notes. Pulls `orchard` + pinned ciphers and
-  forces `std`.
+  the ZIP-212 `cmx` check. Wraps upstream `IronwoodDomain` (V3 note plaintexts,
+  lead byte `0x03`). Useful for scanning Name Notes. Pulls crates.io `orchard`
+  and forces `std`.
 - `NameNote<'a>` -- three-variant enum representing a committed on-chain Name Note.
 - `Name<'a>`, `Ua<'a>`, `Expiry<'a>`, `PrevRcm` -- validated domain types.
 - `Memo` -- zero-padded ZIP-302 memo with canonical padding enforcement.
@@ -126,8 +125,8 @@ update, is refused. The forged note fails it unless the transaction reveals the
 stored tip nullifier, which only the Registry key can do.
 
 A binding needs both results. `verify_name_note_with_witness` returns the
-`(ψ, rcm)` opening. With the `decrypt` feature, `name_note_nullifier` turns that
-opening and the decrypted note into the nullifier to store as the next tip.
+`(ψ, rcm)` opening, from which the caller derives the nullifier to store as the
+next tip.
 
 ## Footprint
 
