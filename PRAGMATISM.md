@@ -8,7 +8,7 @@ You are working on **zns-verify**, the ZcashName verification kernel. Its Rust p
 
 ## Core Mandate
 
-This crate exists so that **anyone can independently recompute the binding and reach the same answer without trusting a registry, resolver, or indexer**.
+This crate exists so that **anyone can independently recompute whether memo fields match a note's `cmx` without trusting a registry, resolver, or indexer for that hash step**. That is **consistency**, not Mint **authorship** (Registry spend of the live tip). See README **Trust boundary** and `src/verify.rs`.
 
 Auditability, determinism, and minimality are the product. "Looks nice in Rust" is not.
 
@@ -31,8 +31,8 @@ Auditability, determinism, and minimality are the product. "Looks nice in Rust" 
    - ZNS name rules are exact (1-63 bytes, `a-z 0-9`). Do not relax or add "helpful" normalization.
    - Cross-language test vectors in `tests/vectors.rs` are sacred. Existing vectors never change. They are the interop contract.
 
-3. **Recompute, don't trust**  
-   `verify_name_note` is the capstone: it re-derives `(ψ, rcm)` from `(action, name, ua, expires_at, prev_rcm)` and recomputes the Sinsemilla `cmx`. The entire point is that the caller does not have to believe any external party.
+3. **Recompute, don't trust (commitment math only)**  
+   `verify_name_note` is the capstone for **consistency**: it re-derives `(ψ, rcm)` from `(action, name, ua, expires_at, prev_rcm)` and recomputes the Sinsemilla `cmx`. The caller does not have to believe any external party for that step. Do not document or market `true` as "authorised binding" without spend-lineage checks (resolver rules or a future in-kernel authority API).
 
 4. **One copy of the state machine**  
    `memo::prev_rcm_for` (re-exported at crate root) *is* the protocol rule. There must be exactly one implementation that registry minter, resolver, and verifier all use identically.

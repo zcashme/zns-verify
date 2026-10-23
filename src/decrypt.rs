@@ -20,7 +20,11 @@ pub fn try_compact_ironwood(
     Some((*candidate.note(), recipient, cmx))
 }
 
-/// Full-transaction trial decryption returning the memo; validate with [`crate::verify_name_note`].
+/// Full-transaction trial decryption returning the memo.
+///
+/// [`crate::verify_name_note`] checks the memo against `cmx`. That does not
+/// show the Registry authorised the note: a resolver also checks that the
+/// transaction spent the name's live tip or claim anchor.
 pub fn try_decrypt_ironwood<A>(
     action: &Action<A>,
     fvk: &FullViewingKey,

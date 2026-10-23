@@ -1,11 +1,28 @@
-//! Verification: recomputes a Name Note's commitment from its fields and
-//! compares it to the on-chain `cmx` (WP §3.4).
+//! Name Note **commitment** verification (WP §3.4).
+//!
+//! [`verify_name_note`] checks **consistency**: the parsed memo fields, the note
+//! components you supply (`g_d`, `pk_d`, `value`, `rho`), and the on-chain `cmx`
+//! all agree. It does **not** check **authorship**: whether the Registry spend
+//! key created this note by spending the correct anchor or live tip, whether the
+//! note is zero-value to the published registry address, or whether a resolver-
+//! style admission policy would accept it. Those rules live in the mint and
+//! resolver; a wallet that scans registry outputs and treats `true` from this
+//! API as "this name is mine" can accept a forged binding.
+//!
+//! [`crate::prev_rcm_for`] is the shared per-name chain-shape rule only. It does
+//! not substitute for spend lineage checks.
 
 use crate::commitment::{note_commitment_cmx, zns_psi_rcm, ExtractedNoteCommitment, Rho};
 use crate::memo::{NameNote, PrevRcm};
 use pasta_curves::pallas;
 
-/// Verifies that a Name Note's fields reproduce the on-chain `cmx`.
+/// Returns `true` when the note's fields reproduce the on-chain `cmx`.
+///
+/// **Consistent, not authorised.** `true` means the `(name, ua, …)` tuple in
+/// the memo matches this note's commitment. Anyone can build a zero-value note
+/// to the published registry address whose `(ψ, rcm)` verify; ZNS authority
+/// comes from the Registry key spending the right predecessor, which this
+/// function does not inspect.
 pub fn verify_name_note(
     note: &NameNote,
     g_d: [u8; 32],
@@ -17,12 +34,13 @@ pub fn verify_name_note(
     verify_name_note_with_witness(note, g_d, pk_d, value, rho, cmx).is_some()
 }
 
-/// Same as [`verify_name_note`], returning the re-derived `(ψ, rcm)` opening
-/// on match, so callers (resolvers indexing the name chain, fraud proofs)
-/// do not re-hash. `rcm` is the chain link: the next transition's
+/// Same consistency check as [`verify_name_note`], returning the re-derived
+/// `(ψ, rcm)` opening on match so callers (resolvers indexing the name chain,
+/// fraud proofs) do not re-hash. `rcm` is the chain link: the next transition's
 /// `prev_rcm`, and the input to the note's spend-revealed nullifier.
 ///
-/// Returns `None` on mismatch, including the identity-commitment case.
+/// Returns `None` on mismatch, including the identity-commitment case. A match
+/// still does not prove Registry authorship (see module docs).
 pub fn verify_name_note_with_witness(
     note: &NameNote,
     g_d: [u8; 32],

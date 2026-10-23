@@ -224,6 +224,10 @@ pub struct Tip {
 }
 
 /// The `prev_rcm` an `action` must extend given the name's current tip.
+///
+/// This is the per-name **chain-shape** rule only. It does not check that a note
+/// was created by spending that tip with the Registry key (see `verify_name_note`
+/// module docs).
 pub fn prev_rcm_for(tip: Option<&Tip>, action: Action) -> Option<[u8; 32]> {
     match (action, tip) {
         (Action::Claim, None) => Some(ZERO_PREV_RCM),

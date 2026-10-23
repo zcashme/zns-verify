@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Document the verification **trust boundary**: `verify_name_note` checks that
+  a Name Note's fields reproduce its `cmx`, not that the Registry authorised the
+  note. README (new Trust boundary section), AGENTS.md, PRAGMATISM.md, and the
+  `verify`, `prev_rcm_for`, and `try_decrypt_ironwood` rustdocs updated. The
+  README no longer presents the crate as sufficient for name resolution in a
+  wallet.
+
 ### Added
 
 - `Action::as_str()`: the canonical ASCII spelling of an action as text.
