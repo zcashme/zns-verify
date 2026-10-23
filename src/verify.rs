@@ -2,15 +2,14 @@
 //!
 //! [`verify_name_note`] checks **consistency**: the parsed memo fields, the note
 //! components you supply (`g_d`, `pk_d`, `value`, `rho`), and the on-chain `cmx`
-//! all agree. It does **not** check **authorship**: whether the Registry spend
-//! key created this note by spending the correct anchor or live tip, whether the
-//! note is zero-value to the published registry address, or whether a resolver-
-//! style admission policy would accept it. Those rules live in the mint and
-//! resolver; a wallet that scans registry outputs and treats `true` from this
-//! API as "this name is mine" can accept a forged binding.
+//! all agree. It does **not** check **authorship**. A wallet that treats `true`
+//! as "this name is mine" can accept a forged binding. The spend rule is
+//! [`crate::authorized_transition`]: the transaction must reveal the predecessor
+//! nullifier. Both have to hold.
 //!
-//! [`crate::prev_rcm_for`] is the shared per-name chain-shape rule only. It does
-//! not substitute for spend lineage checks.
+//! [`crate::prev_rcm_for`] is the per-name chain-shape rule.
+//! [`crate::authorized_transition`] applies it together with the revealed
+//! nullifiers.
 
 use crate::commitment::{note_commitment_cmx, zns_psi_rcm, ExtractedNoteCommitment, Rho};
 use crate::memo::{NameNote, PrevRcm};
@@ -20,9 +19,8 @@ use pasta_curves::pallas;
 ///
 /// **Consistent, not authorised.** `true` means the `(name, ua, …)` tuple in
 /// the memo matches this note's commitment. Anyone can build a zero-value note
-/// to the published registry address whose `(ψ, rcm)` verify; ZNS authority
-/// comes from the Registry key spending the right predecessor, which this
-/// function does not inspect.
+/// to the published registry address whose `(ψ, rcm)` verify. The Registry
+/// spend is [`crate::authorized_transition`], which this function does not run.
 pub fn verify_name_note(
     note: &NameNote,
     g_d: [u8; 32],

@@ -4,7 +4,8 @@
 #![deny(missing_docs)]
 #![deny(rustdoc::broken_intra_doc_links)]
 
-// The three canonical modules.
+// The canonical modules.
+pub mod authority;
 pub mod commitment;
 pub mod memo;
 pub mod verify;
@@ -26,6 +27,7 @@ pub use commitment::{
 
 pub use memo::MemoError;
 
+pub use authority::{authorized_transition, Transition};
 pub use verify::{verify_name_note, verify_name_note_with_witness};
 
 pub use group::ff::PrimeField;

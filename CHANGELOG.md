@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `authorized_transition`: the Registry spend rule for one Name Note. True when
+  the transaction reveals the live tip (or exactly one claim anchor), reveals
+  no other live name, and the note's `prev_rcm` extends that tip.
+  `verify_name_note` remains the commitment check; both are required.
+- `name_note_nullifier` (`decrypt`): the nullifier to store as the next tip,
+  from the decrypted note and the `(ψ, rcm)` opening.
 - `Action::as_str()`: the canonical ASCII spelling of an action as text.
   `Action::as_bytes()` now derives from it, so the byte and text forms share
   one source and cannot drift. Downstream code (registry, resolver, JSON-RPC)

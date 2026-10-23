@@ -50,6 +50,11 @@ the note's recipient.
   transition is **authorised**; see [Trust boundary](#trust-boundary)).
 - `verify_name_note_with_witness(...)` -- same, returning the re-derived `(ψ, rcm)`
   opening on match.
+- `authorized_transition(...)` -- the Registry spend check: the transaction
+  reveals this name's live tip (or exactly one claim anchor), and `prev_rcm`
+  extends that tip. Both this and `verify_name_note` have to hold.
+- `name_note_nullifier(...)` (`decrypt`) -- the nullifier to store as the next
+  tip, from the decrypted note and the `(ψ, rcm)` opening.
 - `NameNote::parse(&Memo)` / `note.encode()` -- the canonical Name Note memo
   grammar as a three-variant enum (`Claim` / `Update` / `Release`) with validated
   field types (`Name`, `Ua`, `Expiry`, `PrevRcm`).
@@ -58,11 +63,12 @@ the note's recipient.
 - Out of scope: request memos (user -> Mint treasury intake). They are never
   committed on chain and have no role in verification.
 
-This kernel is the protocol's shared core -- the crypto plus the two pure
-rules every party must compute identically. It has no dependencies that keep
-it out of a wallet, SDK, resolver, enclave, or embedded target, but on its own
-it is not a name resolver: a consumer that turns names into payment addresses
-also needs the spend checks described under [Trust boundary](#trust-boundary).
+This kernel is the protocol's shared core -- the crypto plus the chain-shape
+and spend rules every party must compute identically. It has no dependencies
+that keep it out of a wallet, SDK, resolver, enclave, or embedded target. A
+consumer that turns names into payment addresses calls `authorized_transition`
+with the nullifiers it stored; `verify_name_note` alone does not resolve a name
+(see [Trust boundary](#trust-boundary)).
 
 ## Features & capabilities
 
@@ -81,22 +87,24 @@ also needs the spend checks described under [Trust boundary](#trust-boundary).
 - Strict Name Note memo grammar with exact field counts, ZNS name rules
   (`a-z 0-9`, 1-63 bytes), and 64-lowercase-hex `prev_rcm`.
 - `Action` enum and name validation (`Name::parse`).
-- Lifecycle / chain rules (`prev_rcm_for`, `Tip`, `ZERO_PREV_RCM`).
+- Lifecycle / chain rules (`prev_rcm_for`, `Tip`, `ZERO_PREV_RCM`) and the
+  spend rule (`authorized_transition`).
 - `MemoError` for all grammar violations.
 - Re-exports for `pallas` and `PrimeField` (so you don't need direct curve dependencies).
 - `#![forbid(unsafe_code)]` and `#![deny(missing_docs)]`.
 - "Recompute, don't trust" for **commitment math** -- no reliance on a registry
   or indexer to tell you whether `(action, name, ua, …)` matches `cmx`. Spend
-  lineage and mint admission are out of scope unless you add them (see [Trust
-  boundary](#trust-boundary)).
+  lineage is `authorized_transition`. Term and liveness clocks stay with the
+  mint (see [Trust boundary](#trust-boundary)).
 - Support for `prev_rcm` as a witness (enables single-note verification,
   tail-scan backstops, and fraud proofs).
 
 ## Trust boundary
 
 In ZNS, authority to bind a name comes from the Registry spend key creating a
-Name Note by spending the right predecessor (claim anchor or live tip). The
-default kernel checks none of that.
+Name Note by spending the right predecessor (claim anchor or live tip).
+`verify_name_note` does not see that spend. `authorized_transition` does, from
+the nullifiers the caller supplies.
 
 `verify_name_note` takes an already-parsed `NameNote` and the note components
 the caller supplies (`g_d`, `pk_d`, `value`, `rho`). It re-derives `(ψ, rcm)`
@@ -108,14 +116,18 @@ does that, separately).
 Because `(ψ, rcm)` are hashes of public fields, anyone can create a zero-value
 note to the published registry address whose commitment verifies, copying a
 public tip's `rcm` as `prev_rcm`. That note also passes `NameNote::parse` and
-`prev_rcm_for`. Scanning registry outputs, verifying, and following `prev_rcm`
-is therefore not enough to resolve a name: it accepts a forged update binding
-someone else's name to an attacker's UA.
+`prev_rcm_for`.
 
-To resolve names, query a resolver that checks the Registry spends, or implement
-those checks yourself: the note must be created by a transaction that spends the
-name's live tip (or claim anchor), which only the Registry key can do. This
-crate does not provide that check.
+`authorized_transition` is the spend check. It is true when `prev_rcm` extends
+the tip you pass and the transaction's revealed nullifiers are the predecessor
+that action requires: this name's live tip for an update or release, or exactly
+one live anchor for a claim. A second live name, or an anchor spent beside an
+update, is refused. The forged note fails it unless the transaction reveals the
+stored tip nullifier, which only the Registry key can do.
+
+A binding needs both results. `verify_name_note_with_witness` returns the
+`(ψ, rcm)` opening. With the `decrypt` feature, `name_note_nullifier` turns that
+opening and the decrypted note into the nullifier to store as the next tip.
 
 ## Footprint
 
@@ -144,9 +156,8 @@ let memo = Memo::from_bytes(
     b"ZNS:claim:alice:u1897y9pzw3zk6n9twtzu2z5kpkzw3hms2c54fpyv8lnr79m73tazljkk3veaxrtwncp66lf45p3f274xy2amqckx0sraje4v835yw8q0q:none:0000000000000000000000000000000000000000000000000000000000000000",
 )?;
 let note = NameNote::parse(&memo)?;
-// `true` means the memo fields reproduce `cmx`. It does not mean the Registry
-// authorised this note: that needs a check that the transaction spent the
-// name's live tip or claim anchor (see Trust boundary).
+// `consistent` means the memo fields reproduce `cmx`. The Registry spend is
+// `authorized_transition`, a separate call (see Trust boundary).
 let consistent = verify_name_note(
     &note,
     g_d, pk_d, 0, rho, on_chain_cmx,
