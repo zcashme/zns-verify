@@ -31,8 +31,6 @@ pasta_curves = { version = "0.6", default-features = false }
 # no orchard fork required.
 sinsemilla = "0.2"
 group = { version = "0.14", default-features = false }
-# PRF^nfOrchard, for the Name Note nullifier. no_std, Orchard's own parameters.
-halo2_poseidon = "0.2"
 
 # ── `decrypt` (ZNS Ironwood trial decrypt, optional) ─────────────────────────
 # Upstream orchard: the same package every zcash crate depends on, so a

@@ -39,7 +39,7 @@ the note's recipient.
 - The `decrypt` feature wraps upstream `IronwoodDomain` (accepts V3 lead byte
   `0x03`), passes the published `cmx` through instead of re-deriving it, and
   keeps the AEAD authentication; the `cmx` consistency check moves to
-  `verify_name_note`. Plain crates.io `orchard`, no fork.
+  `verify_name_note`.
 
 ## What it does
 
@@ -54,11 +54,6 @@ the note's recipient.
 - `authorized_transition(...)` -- the Registry spend check: the transaction
   reveals this name's live tip (or exactly one claim anchor), and `prev_rcm`
   extends that tip. Both this and `verify_name_note` have to hold.
-- `name_note_nullifier(...)` -- the nullifier to store as the next tip, from
-  the note components, `nk`, and the `(ψ, rcm)` opening. With `decrypt`, a
-  second form takes the decrypted `orchard` note and full viewing key.
-- `diversify_hash(d)` -- `g_d` for a diversifier, the input `verify_name_note`
-  and `name_note_nullifier` need from an address.
 - `NameNote::parse(&Memo)` / `note.encode()` -- the canonical Name Note memo
   grammar as a three-variant enum (`Claim` / `Update` / `Release`) with validated
   field types (`Name`, `Ua`, `Expiry`, `PrevRcm`).
@@ -130,14 +125,14 @@ update, is refused. The forged note fails it unless the transaction reveals the
 stored tip nullifier, which only the Registry key can do.
 
 A binding needs both results. `verify_name_note_with_witness` returns the
-`(ψ, rcm)` opening. `name_note_nullifier` turns that opening and the note into
-the nullifier to store as the next tip.
+`(ψ, rcm)` opening, from which the caller derives the nullifier to store as the
+next tip.
 
 ## Footprint
 
 `#![no_std]` (except with the `decrypt` feature), `#![forbid(unsafe_code)]`,
 and minimal dependencies. Production crates: `blake2b_simd`, `pasta_curves`,
-`sinsemilla`, `group`, `halo2_poseidon`.
+`sinsemilla`, `group`.
 
 ## Usage
 

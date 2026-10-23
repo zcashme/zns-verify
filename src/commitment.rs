@@ -3,9 +3,6 @@
 
 use blake2b_simd::Params;
 use group::ff::{FromUniformBytes, PrimeField};
-use group::{Curve, Group, GroupEncoding};
-use halo2_poseidon::{ConstantLength, P128Pow5T3};
-use pasta_curves::arithmetic::{CurveAffine, CurveExt};
 use pasta_curves::pallas;
 
 /// The protocol domain tag (WP §3.3).
@@ -120,101 +117,14 @@ pub fn note_commitment_cmx(
     let value_bytes = value.to_le_bytes();
     let rho_bytes = rho.to_bytes();
     let psi_bytes = psi.to_repr();
-    let bits = note_commitment_bits(&g_d, &pk_d, &value_bytes, &rho_bytes, &psi_bytes);
+
+    let bits = le_bytes_lsb0(&g_d)
+        .chain(le_bytes_lsb0(&pk_d))
+        .chain(le_bytes_lsb0(&value_bytes))
+        .chain(le_bytes_lsb0(&rho_bytes).take(L_ORCHARD_BASE))
+        .chain(le_bytes_lsb0(&psi_bytes).take(L_ORCHARD_BASE));
 
     Option::<pallas::Base>::from(domain.short_commit(bits, &rcm)).map(ExtractedNoteCommitment)
-}
-
-/// The Sinsemilla note commitment point itself (Protocol Spec §5.4.8.4).
-/// `cmx` is its x-coordinate; the nullifier needs the whole point.
-fn note_commitment(
-    g_d: [u8; 32],
-    pk_d: [u8; 32],
-    value: u64,
-    rho: Rho,
-    psi: pallas::Base,
-    rcm: pallas::Scalar,
-) -> Option<pallas::Point> {
-    let domain = sinsemilla::CommitDomain::new("z.cash:Orchard-NoteCommit");
-    let value_bytes = value.to_le_bytes();
-    let rho_bytes = rho.to_bytes();
-    let psi_bytes = psi.to_repr();
-    let bits = note_commitment_bits(&g_d, &pk_d, &value_bytes, &rho_bytes, &psi_bytes);
-
-    Option::<pallas::Point>::from(domain.commit(bits, &rcm))
-}
-
-/// The NoteCommit message `g_d || pk_d || v || rho || psi` as LSB-first bits,
-/// shared by `cmx` and the nullifier so the two cannot encode it differently.
-fn note_commitment_bits<'a>(
-    g_d: &'a [u8; 32],
-    pk_d: &'a [u8; 32],
-    value: &'a [u8; 8],
-    rho: &'a [u8; 32],
-    psi: &'a [u8; 32],
-) -> impl Iterator<Item = bool> + 'a {
-    le_bytes_lsb0(g_d)
-        .chain(le_bytes_lsb0(pk_d))
-        .chain(le_bytes_lsb0(value))
-        .chain(le_bytes_lsb0(rho).take(L_ORCHARD_BASE))
-        .chain(le_bytes_lsb0(psi).take(L_ORCHARD_BASE))
-}
-
-/// `g_d` for a diversifier (Protocol Spec §5.4.1.6, `DiversifyHash`): the
-/// base point every address with that diversifier shares. If the hash lands
-/// on the identity the spec substitutes the hash of the empty string.
-pub fn diversify_hash(diversifier: &[u8; 11]) -> [u8; 32] {
-    let hash = pallas::Point::hash_to_curve("z.cash:Orchard-gd");
-    let g_d = hash(diversifier);
-    if bool::from(g_d.is_identity()) {
-        hash(&[]).to_bytes()
-    } else {
-        g_d.to_bytes()
-    }
-}
-
-/// The nullifier a Name Note reveals when the Registry spends it (Protocol
-/// Spec §4.16, `DeriveNullifier`, with the ZNS opening in place of the
-/// rseed-derived one):
-///
-/// `nf = ExtractP([PRF^nfOrchard_nk(ρ) + ψ mod r] K + cm)`
-///
-/// `nk` is the nullifier deriving key, bytes 32..64 of the raw Orchard full
-/// viewing key encoding (§5.6.4.4). `cm` is the commitment the other inputs
-/// open, so `psi` and `rcm` are the pair [`crate::verify_name_note_with_witness`]
-/// returns. Store the result as the name's tip nullifier and hand it to
-/// [`crate::authorized_transition`] when the next transition arrives.
-///
-/// Returns `None` when `nk` is not a canonical field element or the
-/// commitment is undefined, exactly when [`note_commitment_cmx`] is `None`.
-pub fn name_note_nullifier(
-    nk: &[u8; 32],
-    g_d: [u8; 32],
-    pk_d: [u8; 32],
-    value: u64,
-    rho: Rho,
-    psi: pallas::Base,
-    rcm: pallas::Scalar,
-) -> Option<[u8; 32]> {
-    let nk = Option::<pallas::Base>::from(pallas::Base::from_repr(*nk))?;
-    let cm = note_commitment(g_d, pk_d, value, rho, psi, rcm)?;
-    let prf_nf =
-        halo2_poseidon::Hash::<_, P128Pow5T3, ConstantLength<2>, 3, 2>::init().hash([nk, rho.0]);
-    // Base field elements are below the scalar modulus, so this always parses.
-    let scalar =
-        Option::<pallas::Scalar>::from(pallas::Scalar::from_repr((prf_nf + psi).to_repr()))?;
-    let k = pallas::Point::hash_to_curve("z.cash:Orchard")(b"K");
-    Some(extract_p(&(k * scalar + cm)).to_repr())
-}
-
-/// `ExtractP` (Protocol Spec §5.4.9.7): the x-coordinate, or zero for the
-/// identity.
-fn extract_p(point: &pallas::Point) -> pallas::Base {
-    point
-        .to_affine()
-        .coordinates()
-        .map(|c| *c.x())
-        .unwrap_or(pallas::Base::zero())
 }
 
 fn le_bytes_lsb0(bytes: &[u8]) -> impl Iterator<Item = bool> + '_ {

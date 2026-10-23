@@ -13,13 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of the `zns-orchard` git fork and a `=0.11.0-pre.0` pin.
   `ZnsIronwoodDomain` and `CandidateNote` now live in `zns_verify::decrypt`,
   wrapping upstream `IronwoodDomain`. The crate publishes with the feature
-  intact, and a consumer gets one orchard, shared with `zcash_keys`.
-
-### Added
-
-- `name_note_nullifier` and `diversify_hash` in the kernel, orchard-free.
-  The `decrypt` function of the same name keeps its signature and calls it.
-  Pulls `halo2_poseidon` for PRF^nfOrchard.
+  intact, and a consumer gets one orchard. The default kernel build is
+  unchanged.
 - Document the verification **trust boundary**: `verify_name_note` checks that
   a Name Note's fields reproduce its `cmx`, not that the Registry authorised the
   note. README (new Trust boundary section), AGENTS.md, PRAGMATISM.md, and the
@@ -33,8 +28,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the transaction reveals the live tip (or exactly one claim anchor), reveals
   no other live name, and the note's `prev_rcm` extends that tip.
   `verify_name_note` remains the commitment check; both are required.
-- `name_note_nullifier` (`decrypt`): the nullifier to store as the next tip,
-  from the decrypted note and the `(ψ, rcm)` opening.
 - `Action::as_str()`: the canonical ASCII spelling of an action as text.
   `Action::as_bytes()` now derives from it, so the byte and text forms share
   one source and cannot drift. Downstream code (registry, resolver, JSON-RPC)

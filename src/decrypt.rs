@@ -4,11 +4,10 @@ mod domain;
 
 pub use domain::{CandidateNote, ZnsIronwoodDomain};
 
-use crate::commitment::{diversify_hash, ExtractedNoteCommitment, Rho};
+use crate::commitment::ExtractedNoteCommitment;
 use orchard::keys::{FullViewingKey, PreparedIncomingViewingKey, Scope};
 use orchard::note_encryption::CompactAction;
 use orchard::{Action, Address, Note};
-use pasta_curves::pallas;
 use zcash_protocol::memo::MemoBytes;
 
 /// Compact-block trial decryption; the caller validates after fetching the full tx.
@@ -27,8 +26,7 @@ pub fn try_compact_ironwood(
 ///
 /// [`crate::verify_name_note`] checks the memo against `cmx`.
 /// [`crate::authorized_transition`] checks that the transaction spent the
-/// name's live tip or claim anchor. [`name_note_nullifier`] is the nullifier
-/// to store for the next spend.
+/// name's live tip or claim anchor.
 pub fn try_decrypt_ironwood<A>(
     action: &Action<A>,
     fvk: &FullViewingKey,
@@ -62,42 +60,13 @@ pub fn try_decrypt_ironwood_sent<A>(
     ))
 }
 
-/// The nullifier this Name Note reveals when the Registry next spends it.
-///
-/// `psi` and `rcm` are the opening from [`crate::verify_name_note_with_witness`].
-/// Store the result as this name's next tip nullifier and pass it to
-/// [`crate::authorized_transition`]. Returns `None` when the commitment is the
-/// identity.
-///
-/// This is [`crate::name_note_nullifier`] fed from `orchard` types.
-#[must_use]
-pub fn name_note_nullifier(
-    note: &Note,
-    fvk: &FullViewingKey,
-    psi: pallas::Base,
-    rcm: pallas::Scalar,
-) -> Option<[u8; 32]> {
-    let raw = note.recipient().to_raw_address_bytes();
-    let diversifier: [u8; 11] = raw[..11].try_into().expect("11-byte diversifier");
-    let pk_d: [u8; 32] = raw[11..].try_into().expect("32-byte pk_d");
-    let nk: [u8; 32] = fvk.to_bytes()[32..64].try_into().expect("32-byte nk");
-    let rho = Rho::from_bytes(&note.rho().to_bytes())?;
-    crate::commitment::name_note_nullifier(
-        &nk,
-        diversify_hash(&diversifier),
-        pk_d,
-        note.value().inner(),
-        rho,
-        psi,
-        rcm,
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{note_commitment_cmx, verify_name_note_with_witness, zns_psi_rcm, Memo, NameNote};
-    use group::ff::FromUniformBytes;
+    use crate::{
+        note_commitment_cmx, verify_name_note_with_witness, zns_psi_rcm, Memo, NameNote, Rho,
+    };
+    use group::GroupEncoding;
     use orchard::keys::SpendingKey;
     use orchard::note::{
         ExtractedNoteCommitment as Cmx, Nullifier, RandomSeed, Rho as OrchardRho,
@@ -106,12 +75,14 @@ mod tests {
     use orchard::note_encryption::{IronwoodDomain, IronwoodNoteEncryption};
     use orchard::value::{NoteValue, ValueCommitment};
     use orchard::NoteVersion;
+    use pasta_curves::arithmetic::CurveExt;
+    use pasta_curves::pallas;
     use zcash_note_encryption::Domain;
 
     const UA: &str = "u1897y9pzw3zk6n9twtzu2z5kpkzw3hms2c54fpyv8lnr79m73tazljkk3veaxrtwncp66lf45p3f274xy2amqckx0sraje4v835yw8q0q";
 
-    /// A key, and a zero-value note to its first external address, from a fixed scan.
-    fn received_note(version: NoteVersion) -> (FullViewingKey, Note, RandomSeed) {
+    /// A key, and a zero-value V3 note to its first external address, from a fixed scan.
+    fn received_note() -> (FullViewingKey, Note) {
         let sk = (1u8..=255)
             .find_map(|byte| {
                 let mut bytes = [0x5a; 32];
@@ -133,10 +104,16 @@ mod tests {
             NoteValue::from_raw(0),
             rho,
             rseed,
-            version,
+            NoteVersion::V3,
         )
         .unwrap();
-        (fvk, note, rseed)
+        (fvk, note)
+    }
+
+    /// `DiversifyHash` (Protocol Spec §5.4.1.6), since orchard keeps `g_d` private.
+    fn g_d(address: &Address) -> [u8; 32] {
+        let diversifier = &address.to_raw_address_bytes()[..11];
+        pallas::Point::hash_to_curve("z.cash:Orchard-gd")(diversifier).to_bytes()
     }
 
     /// `note`, encrypted by upstream orchard for `fvk`, published under `cmx`.
@@ -169,29 +146,16 @@ mod tests {
         .unwrap()
     }
 
-    /// `PRF^expand_sk(t)` (Protocol Spec §5.4.2), to recover the rseed-derived
-    /// opening that orchard keeps private.
-    fn prf_expand(sk: &[u8; 32], t: u8, rho: &[u8; 32]) -> [u8; 64] {
-        let hash = blake2b_simd::Params::new()
-            .hash_length(64)
-            .personal(b"Zcash_ExpandSeed")
-            .to_state()
-            .update(sk)
-            .update(&[t])
-            .update(rho)
-            .finalize();
-        hash.as_bytes().try_into().unwrap()
-    }
-
     /// What an explorer does with a block: a whitepaper Name Note, encrypted
     /// by upstream orchard, is rejected by Ironwood, decrypted here, parsed,
-    /// verified, and nullified by the kernel.
+    /// and verified by the kernel.
     #[test]
     fn a_whitepaper_name_note_round_trips() {
-        let (fvk, note, _) = received_note(NoteVersion::V3);
-        let raw = note.recipient().to_raw_address_bytes();
-        let g_d = diversify_hash(&raw[..11].try_into().unwrap());
-        let pk_d: [u8; 32] = raw[11..].try_into().unwrap();
+        let (fvk, note) = received_note();
+        let g_d = g_d(&note.recipient());
+        let pk_d: [u8; 32] = note.recipient().to_raw_address_bytes()[11..]
+            .try_into()
+            .unwrap();
         let rho = Rho::from_bytes(&note.rho().to_bytes()).unwrap();
 
         let memo =
@@ -221,43 +185,6 @@ mod tests {
         assert_eq!(
             verify_name_note_with_witness(&claim, g_d, pk_d, note.value().inner(), rho, seen_cmx),
             Some((psi, rcm))
-        );
-
-        let nk: [u8; 32] = fvk.to_bytes()[32..64].try_into().unwrap();
-        let nullifier = name_note_nullifier(&seen, &fvk, psi, rcm);
-        assert!(nullifier.is_some());
-        assert_eq!(
-            nullifier,
-            crate::name_note_nullifier(&nk, g_d, pk_d, note.value().inner(), rho, psi, rcm)
-        );
-        assert_ne!(nullifier, Some(note.nullifier(&fvk).to_bytes()));
-    }
-
-    /// The kernel nullifier is orchard's: fed the opening a V2 note's rseed
-    /// derives (PRF^expand with 0x09 and 0x05, §4.7.3), it reproduces
-    /// `note.commitment()` and `note.nullifier(&fvk)`. V3 derives rcm by
-    /// ZIP 2005; the math under test does not depend on either.
-    #[test]
-    fn the_nullifier_is_orchards_for_the_rseed_opening() {
-        let (fvk, note, rseed) = received_note(NoteVersion::V2);
-        let rho = note.rho().to_bytes();
-        let psi = pallas::Base::from_uniform_bytes(&prf_expand(rseed.as_bytes(), 0x09, &rho));
-        let rcm = pallas::Scalar::from_uniform_bytes(&prf_expand(rseed.as_bytes(), 0x05, &rho));
-
-        let raw = note.recipient().to_raw_address_bytes();
-        let cmx = note_commitment_cmx(
-            diversify_hash(&raw[..11].try_into().unwrap()),
-            raw[11..].try_into().unwrap(),
-            note.value().inner(),
-            Rho::from_bytes(&rho).unwrap(),
-            psi,
-            rcm,
-        )
-        .unwrap();
-        assert_eq!(cmx.to_bytes(), Cmx::from(note.commitment()).to_bytes());
-        assert_eq!(
-            name_note_nullifier(&note, &fvk, psi, rcm),
-            Some(note.nullifier(&fvk).to_bytes())
         );
     }
 }

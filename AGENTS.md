@@ -23,8 +23,6 @@ path.
 
 - `zns_psi_rcm(action, name, ua, expires_at, prev_rcm) -> (psi, rcm)` -- re-derive the deterministic commitment randomness.
 - `note_commitment_cmx(...)` -- recompute the Sinsemilla note commitment.
-- `name_note_nullifier(...)` -- the nullifier a Name Note reveals when spent, from the same components plus `nk`; the tip `authorized_transition` compares against.
-- `diversify_hash(d)` -- `g_d` from a diversifier.
 - `verify_name_note(...)` -- recompute and compare against cmx; `true` means consistent, not authorised.
 - `authorized_transition(...)` -- the Registry spend rule. True only together with `verify_name_note`.
 - `NameNote::parse(&Memo)` / `note.encode()` -- the canonical Name Note memo grammar as a three-variant enum with validated field types (`Name`, `Expiry`, `PrevRcm`). One strict parser shared by registry, resolver, and slash contract. Agreement is by construction.
@@ -43,14 +41,14 @@ Auditability, determinism, and minimality are the product. "Looks nice in Rust" 
 - `#![no_std]`
 - `#![forbid(unsafe_code)]`
 - `#![deny(missing_docs)]`
-- Default feature compiles **only** the pure verification kernel: `blake2b_simd`, `pasta_curves`, `sinsemilla`, `group`, `halo2_poseidon` (PRF^nfOrchard, for the nullifier).
+- Default feature compiles **only** the pure verification kernel: `blake2b_simd`, `pasta_curves`, `sinsemilla`, `group`.
 - The `decrypt` feature is **strictly opt-in**. It pulls upstream `orchard` and forces `std`. Never pull heavy Zcash crates into the default path.
-- `decrypt` depends on crates.io `orchard`, never the `zns-orchard` fork. The fork is one more package named `orchard` in a consumer's graph, and its types do not mix with the ones `zcash_keys` hands out. Everything the relaxed domain needs is public upstream.
+- `decrypt` depends on crates.io `orchard`, never the `zns-orchard` fork, so a consumer has one orchard, shared with `zcash_keys`.
 
 ## Architectural Principles
 
 1. **Reviewability**  
-   The implementation lives in a small number of focused modules under `src/` (lib.rs as thin coordinator + commitment.rs, memo.rs, verify.rs, authority.rs; decrypt.rs with its `Domain` impl in decrypt/domain.rs). A reviewer or agent must be able to hold the entire kernel in their head. Do not create a deep module tree or spread logic without strong justification. Folder modules are `name.rs` + `name/`, never `mod.rs`; tests stay inline in the file they exercise.
+   The implementation lives in a small number of focused modules under `src/` (lib.rs as thin coordinator + commitment.rs, memo.rs, verify.rs, authority.rs). A reviewer or agent must be able to hold the entire kernel in their head. Do not create a deep module tree or spread logic without strong justification.
 
 2. **Protocol fidelity over Rust idioms**  
    - Length-prefixed BLAKE2b construction is required for collision resistance across languages. Do not "make it nicer" with serde or higher-level combinators if they change the wire or hash bytes.
