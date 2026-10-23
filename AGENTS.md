@@ -50,7 +50,7 @@ Auditability, determinism, and minimality are the product. "Looks nice in Rust" 
 ## Architectural Principles
 
 1. **Reviewability**  
-   The implementation lives in a small number of focused modules under `src/` (lib.rs as thin coordinator + commitment.rs, memo.rs, verify.rs, authority.rs). A reviewer or agent must be able to hold the entire kernel in their head. Do not create a deep module tree or spread logic without strong justification.
+   The implementation lives in a small number of focused modules under `src/` (lib.rs as thin coordinator + commitment.rs, memo.rs, verify.rs, authority.rs; decrypt.rs with its `Domain` impl in decrypt/domain.rs). A reviewer or agent must be able to hold the entire kernel in their head. Do not create a deep module tree or spread logic without strong justification. Folder modules are `name.rs` + `name/`, never `mod.rs`; tests stay inline in the file they exercise.
 
 2. **Protocol fidelity over Rust idioms**  
    - Length-prefixed BLAKE2b construction is required for collision resistance across languages. Do not "make it nicer" with serde or higher-level combinators if they change the wire or hash bytes.
