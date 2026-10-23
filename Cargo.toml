@@ -14,13 +14,11 @@ categories = ["cryptography", "cryptography::cryptocurrencies"]
 # math only -- droppable into a wallet, SDK, enclave, or embedded target.
 default = []
 
-# `decrypt` adds ZNS Ironwood trial decryption for scanning Name Notes.
-# Name Notes are Ironwood-pool notes (NU6.3) whose cmx is derived from the
-# name binding, not from rseed; ZnsIronwoodDomain handles that rule. It pulls
-# orchard + zcash_protocol and forces std, so it is strictly opt-in --
-# anyone who only needs to *verify* a binding never compiles it.
+# `decrypt`: Ironwood trial decryption that accepts a Name Note's cmx as
+# published. Pulls orchard and forces std; verification alone never needs it.
 decrypt = [
     "dep:orchard",
+    "dep:zcash_note_encryption",
     "dep:zcash_protocol",
 ]
 
@@ -33,12 +31,17 @@ pasta_curves = { version = "0.6", default-features = false }
 # no orchard fork required.
 sinsemilla = "0.2"
 group = { version = "0.14", default-features = false }
+# PRF^nfOrchard, for the Name Note nullifier. no_std, Orchard's own parameters.
+halo2_poseidon = "0.2"
 
 # ── `decrypt` (ZNS Ironwood trial decrypt, optional) ─────────────────────────
-# The orchard fork with unsafe-zns, pinned to its release tag.
-orchard = { git = "https://github.com/zcashme/orchard.git", tag = "zns-orchard-v0.16.0", default-features = false, features = ["std", "unsafe-zns"], optional = true }
+# Upstream orchard: the same package every zcash crate depends on, so a
+# consumer never ends up with two orchards.
+orchard = { version = "0.16", default-features = false, features = ["std"], optional = true }
+zcash_note_encryption = { version = "0.5.1", optional = true }
 zcash_protocol = { version = "0.11", default-features = false, features = ["std"], optional = true }
 
 [dev-dependencies]
 hex = "0.4"
 hex-literal = "0.4"
+rand = "0.10"

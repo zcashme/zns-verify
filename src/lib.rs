@@ -22,7 +22,8 @@ pub use memo::{
 };
 
 pub use commitment::{
-    note_commitment_cmx, zns_psi_rcm, ExtractedNoteCommitment, Rho, ZNS_DOMAIN_TAG,
+    diversify_hash, name_note_nullifier, note_commitment_cmx, zns_psi_rcm, ExtractedNoteCommitment,
+    Rho, ZNS_DOMAIN_TAG,
 };
 
 pub use memo::MemoError;
