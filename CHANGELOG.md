@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `decrypt` builds against the stable zcash stack: `zcash_protocol 0.11`
+  (was `=0.11.0-pre.0`) and the `zns-orchard-v0.16.0` tag (was
+  `zns-orchard-v0.16.0-pre.1`, same commit). Consumers on the final crates
+  can now resolve this crate. The default kernel build is unchanged.
 - Document the verification **trust boundary**: `verify_name_note` checks that
   a Name Note's fields reproduce its `cmx`, not that the Registry authorised the
   note. README (new Trust boundary section), AGENTS.md, PRAGMATISM.md, and the
