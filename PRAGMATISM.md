@@ -8,7 +8,7 @@ You are working on **zns-verify**, the ZcashName verification kernel. Its Rust p
 
 ## Core Mandate
 
-This crate exists so that **anyone can independently recompute the binding and reach the same answer without trusting a registry, resolver, or indexer**.
+This crate exists so that **anyone can independently recompute whether memo fields match a note's `cmx`, and whether the transaction spent the predecessor, without trusting a registry, resolver, or indexer for those steps**. Commitment match is **consistency**. The spend check is `authorized_transition`. See README **Trust boundary**.
 
 Auditability, determinism, and minimality are the product. "Looks nice in Rust" is not.
 
@@ -23,7 +23,7 @@ Auditability, determinism, and minimality are the product. "Looks nice in Rust" 
 ## Architectural Principles
 
 1. **Reviewability**  
-   The implementation lives in a small number of focused modules under `src/` (lib.rs as thin coordinator + commitment.rs, memo.rs, verify.rs). A reviewer or agent must be able to hold the entire kernel in their head. Do not create a deep module tree or spread logic without strong justification.
+   The implementation lives in a small number of focused modules under `src/` (lib.rs as thin coordinator + commitment.rs, memo.rs, verify.rs, authority.rs). A reviewer or agent must be able to hold the entire kernel in their head. Do not create a deep module tree or spread logic without strong justification.
 
 2. **Protocol fidelity over Rust idioms**  
    - Length-prefixed BLAKE2b construction is required for collision resistance across languages. Do not "make it nicer" with serde or higher-level combinators if they change the wire/hash bytes.
@@ -31,11 +31,11 @@ Auditability, determinism, and minimality are the product. "Looks nice in Rust" 
    - ZNS name rules are exact (1-63 bytes, `a-z 0-9`). Do not relax or add "helpful" normalization.
    - Cross-language test vectors in `tests/vectors.rs` are sacred. Existing vectors never change. They are the interop contract.
 
-3. **Recompute, don't trust**  
-   `verify_name_note` is the capstone: it re-derives `(ψ, rcm)` from `(action, name, ua, expires_at, prev_rcm)` and recomputes the Sinsemilla `cmx`. The entire point is that the caller does not have to believe any external party.
+3. **Recompute, don't trust (commitment math only)**  
+   `verify_name_note` is the capstone for **consistency**: it re-derives `(ψ, rcm)` from `(action, name, ua, expires_at, prev_rcm)` and recomputes the Sinsemilla `cmx`. The caller does not have to believe any external party for that step. Do not document or market that `true` as an authorised binding. Authorisation is `authorized_transition`, and it still needs the commitment check.
 
 4. **One copy of the state machine**  
-   `memo::prev_rcm_for` (re-exported at crate root) *is* the protocol rule. There must be exactly one implementation that registry minter, resolver, and verifier all use identically.
+   `memo::prev_rcm_for` is the chain-shape rule. `authorized_transition` is the spend rule. Each has one implementation that registry minter, resolver, and verifier use identically.
 
 5. **Minimal surface, explicit opt-in for weight**  
    The common case (verification, parsing, note commitment derivation) must stay tiny and dependency-light. Anything that brings orchard, std-only crypto, or heavy lifting must live behind a feature flag and be clearly labeled as such.

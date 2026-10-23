@@ -8,9 +8,11 @@ Use the content of PRAGMATISM.md (or the principles below) when writing, reviewi
 
 zns-verify is the ZcashName (ZNS) verification kernel -- the minimal primitive the trust model rests on.
 
-A ZcashName binding lives inside a Name Note's commitment. Its (rcm, psi) are a deterministic hash of (action, name, ua, expires_at, prev_rcm), and the chain commits to that hash through the note's cmx. This crate recomputes the commitment from the note's fields and compares it to the on-chain cmx. Match: the (name to ua) binding is real. No match: it is not. You reach that conclusion without trusting any registry, resolver, or indexer.
+A ZcashName binding lives inside a Name Note's commitment. Its (rcm, psi) are a deterministic hash of (action, name, ua, expires_at, prev_rcm), and the chain commits to that hash through the note's cmx. This crate recomputes the commitment from the note's fields and compares it to the on-chain cmx. Match: the memo fields are **consistent** with that `cmx` (same hash math any indexer would apply). No match: they are not. You reach that hash conclusion without trusting any registry, resolver, or indexer for the recomputation.
 
-That is the entire point. Resolution can come from anywhere, because anyone can check the answer here.
+Match is **not** Mint **authorship**: the Registry key spending the live tip or claim anchor. `verify_name_note` does not check spends. `authorized_transition` does, given the revealed nullifiers and the tip nullifier stored from the previous note. Anyone can create a zero-value note to the registry address whose commitment verifies, so a wallet that treats `verify_name_note == true` alone as an authorised binding can be given a forged one. README **Trust boundary** and `src/verify.rs` state this explicitly.
+
+Resolution of **names to UAs** calls `authorized_transition` with those nullifiers. `verify_name_note` alone is not a resolver.
 
 ### What the crate provides
 
@@ -21,15 +23,16 @@ path.
 
 - `zns_psi_rcm(action, name, ua, expires_at, prev_rcm) -> (psi, rcm)` -- re-derive the deterministic commitment randomness.
 - `note_commitment_cmx(...)` -- recompute the Sinsemilla note commitment.
-- `verify_name_note(...)` -- both at once: recompute and compare against cmx, returning a plain bool.
+- `verify_name_note(...)` -- recompute and compare against cmx; `true` means consistent, not authorised.
+- `authorized_transition(...)` -- the Registry spend rule. True only together with `verify_name_note`.
 - `NameNote::parse(&Memo)` / `note.encode()` -- the canonical Name Note memo grammar as a three-variant enum with validated field types (`Name`, `Expiry`, `PrevRcm`). One strict parser shared by registry, resolver, and slash contract. Agreement is by construction.
-- `memo::prev_rcm_for` -- the per-name transition rule: which prev_rcm an action must extend, given the name's tip.
+- `memo::prev_rcm_for` -- the per-name chain-shape rule: which prev_rcm an action must extend, given the name's tip. `authorized_transition` applies it.
 
-This kernel is the protocol's shared core -- the crypto plus the two pure rules every party must compute identically -- which lets it drop unchanged into a wallet, SDK, resolver, enclave, or embedded target.
+This kernel is the protocol's shared core -- the crypto plus the chain-shape and spend rules every party must compute identically. Its dependencies let it run in a wallet, SDK, resolver, enclave, or embedded target. Turning names into payment addresses calls `authorized_transition` with the stored tip nullifier; `verify_name_note` alone does not.
 
 ## Core Mandate
 
-This crate exists so that **anyone can independently recompute the binding and reach the same answer without trusting a registry, resolver, or indexer**.
+This crate exists so that **anyone can independently recompute whether memo fields match a note's `cmx` without trusting a registry, resolver, or indexer for that hash step**.
 
 Auditability, determinism, and minimality are the product. "Looks nice in Rust" is not.
 
@@ -44,7 +47,7 @@ Auditability, determinism, and minimality are the product. "Looks nice in Rust" 
 ## Architectural Principles
 
 1. **Reviewability**  
-   The implementation lives in a small number of focused modules under `src/` (lib.rs as thin coordinator + commitment.rs, memo.rs, verify.rs). A reviewer or agent must be able to hold the entire kernel in their head. Do not create a deep module tree or spread logic without strong justification.
+   The implementation lives in a small number of focused modules under `src/` (lib.rs as thin coordinator + commitment.rs, memo.rs, verify.rs, authority.rs). A reviewer or agent must be able to hold the entire kernel in their head. Do not create a deep module tree or spread logic without strong justification.
 
 2. **Protocol fidelity over Rust idioms**  
    - Length-prefixed BLAKE2b construction is required for collision resistance across languages. Do not "make it nicer" with serde or higher-level combinators if they change the wire or hash bytes.
@@ -52,11 +55,11 @@ Auditability, determinism, and minimality are the product. "Looks nice in Rust" 
    - ZNS name rules are exact (1-63 bytes, `a-z 0-9`). Do not relax or add "helpful" normalization.
    - Cross-language test vectors in `tests/vectors.rs` are sacred. Existing vectors never change. They are the interop contract.
 
-3. **Recompute, don't trust**  
-   `verify_name_note` is the capstone: it re-derives `(psi, rcm)` from `(action, name, ua, expires_at, prev_rcm)` and recomputes the Sinsemilla `cmx`. The entire point is that the caller does not have to believe any external party.
+3. **Recompute, don't trust (commitment math only)**  
+   `verify_name_note` is the capstone for **consistency**: it re-derives `(psi, rcm)` from `(action, name, ua, expires_at, prev_rcm)` and recomputes the Sinsemilla `cmx`. The caller does not have to believe any external party for that step. It must not be read as proof the Mint authorised the transition. Authorisation is `authorized_transition`, and it still needs the commitment check.
 
 4. **One copy of the state machine**  
-   `memo::prev_rcm_for` (re-exported at crate root) *is* the protocol rule. There must be exactly one implementation that registry minter, resolver, and verifier all use identically.
+   `memo::prev_rcm_for` is the chain-shape rule. `authorized_transition` is the spend rule. Each has one implementation that registry minter, resolver, and verifier use identically.
 
 5. **Minimal surface, explicit opt-in for weight**  
    The common case (verification, parsing, note commitment derivation) must stay tiny and dependency-light. Anything that brings orchard, std-only crypto, or heavy lifting must live behind a feature flag and be clearly labeled as such.

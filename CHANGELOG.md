@@ -7,8 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Document the verification **trust boundary**: `verify_name_note` checks that
+  a Name Note's fields reproduce its `cmx`, not that the Registry authorised the
+  note. README (new Trust boundary section), AGENTS.md, PRAGMATISM.md, and the
+  `verify`, `prev_rcm_for`, and `try_decrypt_ironwood` rustdocs updated. The
+  README no longer presents the crate as sufficient for name resolution in a
+  wallet.
+
 ### Added
 
+- `authorized_transition`: the Registry spend rule for one Name Note. True when
+  the transaction reveals the live tip (or exactly one claim anchor), reveals
+  no other live name, and the note's `prev_rcm` extends that tip.
+  `verify_name_note` remains the commitment check; both are required.
+- `name_note_nullifier` (`decrypt`): the nullifier to store as the next tip,
+  from the decrypted note and the `(ψ, rcm)` opening.
 - `Action::as_str()`: the canonical ASCII spelling of an action as text.
   `Action::as_bytes()` now derives from it, so the byte and text forms share
   one source and cannot drift. Downstream code (registry, resolver, JSON-RPC)
