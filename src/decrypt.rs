@@ -63,10 +63,7 @@ pub fn try_decrypt_ironwood_sent<A>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        note_commitment_cmx, verify_name_note_with_witness, zns_psi_rcm, Memo, NameNote, Rho,
-    };
-    use group::GroupEncoding;
+    use group::ff::PrimeField;
     use orchard::keys::SpendingKey;
     use orchard::note::{
         ExtractedNoteCommitment as Cmx, Nullifier, RandomSeed, Rho as OrchardRho,
@@ -75,11 +72,8 @@ mod tests {
     use orchard::note_encryption::{IronwoodDomain, IronwoodNoteEncryption};
     use orchard::value::{NoteValue, ValueCommitment};
     use orchard::NoteVersion;
-    use pasta_curves::arithmetic::CurveExt;
     use pasta_curves::pallas;
     use zcash_note_encryption::Domain;
-
-    const UA: &str = "u1897y9pzw3zk6n9twtzu2z5kpkzw3hms2c54fpyv8lnr79m73tazljkk3veaxrtwncp66lf45p3f274xy2amqckx0sraje4v835yw8q0q";
 
     /// A key, and a zero-value V3 note to its first external address, from a fixed scan.
     fn received_note() -> (FullViewingKey, Note) {
@@ -108,12 +102,6 @@ mod tests {
         )
         .unwrap();
         (fvk, note)
-    }
-
-    /// `DiversifyHash` (Protocol Spec §5.4.1.6), since orchard keeps `g_d` private.
-    fn g_d(address: &Address) -> [u8; 32] {
-        let diversifier = &address.to_raw_address_bytes()[..11];
-        pallas::Point::hash_to_curve("z.cash:Orchard-gd")(diversifier).to_bytes()
     }
 
     /// `note`, encrypted by upstream orchard for `fvk`, published under `cmx`.
@@ -146,45 +134,26 @@ mod tests {
         .unwrap()
     }
 
-    /// What an explorer does with a block: a whitepaper Name Note, encrypted
-    /// by upstream orchard, is rejected by Ironwood, decrypted here, parsed,
-    /// and verified by the kernel.
+    /// The one difference from Ironwood: a note published under a cmx other
+    /// than its rseed one (as every Name Note is) decrypts, and comes back
+    /// with the cmx the action published.
     #[test]
-    fn a_whitepaper_name_note_round_trips() {
+    fn a_note_under_a_foreign_cmx_decrypts() {
         let (fvk, note) = received_note();
-        let g_d = g_d(&note.recipient());
-        let pk_d: [u8; 32] = note.recipient().to_raw_address_bytes()[11..]
-            .try_into()
-            .unwrap();
-        let rho = Rho::from_bytes(&note.rho().to_bytes()).unwrap();
-
-        let memo =
-            Memo::from_bytes(format!("ZNS:claim:alice:{UA}:none:{}", "0".repeat(64)).as_bytes())
-                .unwrap();
-        let claim = NameNote::parse(&memo).unwrap();
-        let (psi, rcm) = zns_psi_rcm(b"claim", b"alice", UA.as_bytes(), b"none", &[0; 32]);
-        let cmx = note_commitment_cmx(g_d, pk_d, note.value().inner(), rho, psi, rcm).unwrap();
-        let published = Cmx::from_bytes(&cmx.to_bytes()).unwrap();
-        assert_ne!(published, Cmx::from(note.commitment()));
-        let action = ironwood_action(&fvk, note, published, *memo.as_array());
+        let cmx = Cmx::from_bytes(&pallas::Base::from(42u64).to_repr()).unwrap();
+        assert_ne!(cmx, Cmx::from(note.commitment()));
+        let action = ironwood_action(&fvk, note, cmx, [0x77; 512]);
 
         let ivk = PreparedIncomingViewingKey::new(&fvk.to_ivk(Scope::External));
         let ironwood = IronwoodDomain::for_action(&action);
         assert!(zcash_note_encryption::try_note_decryption(&ironwood, &ivk, &action).is_none());
 
-        let (seen, _, seen_cmx) =
-            try_compact_ironwood(&fvk, &CompactAction::from(&action)).unwrap();
-        assert_eq!((seen, seen_cmx), (note, cmx));
-        let (seen, _, _, seen_cmx) = try_decrypt_ironwood_sent(&action, &fvk).unwrap();
-        assert_eq!((seen, seen_cmx), (note, cmx));
-
-        let (seen, _, seen_memo, seen_cmx) = try_decrypt_ironwood(&action, &fvk).unwrap();
-        assert_eq!((seen, seen_cmx), (note, cmx));
-        let seen_memo = Memo::from_array(*seen_memo.as_array());
-        assert_eq!(NameNote::parse(&seen_memo).unwrap(), claim);
-        assert_eq!(
-            verify_name_note_with_witness(&claim, g_d, pk_d, note.value().inner(), rho, seen_cmx),
-            Some((psi, rcm))
-        );
+        let ours = ExtractedNoteCommitment::from_bytes(&cmx.to_bytes()).unwrap();
+        let (n, _, c) = try_compact_ironwood(&fvk, &CompactAction::from(&action)).unwrap();
+        assert_eq!((n, c), (note, ours));
+        let (n, _, memo, c) = try_decrypt_ironwood(&action, &fvk).unwrap();
+        assert_eq!((n, *memo.as_array(), c), (note, [0x77; 512], ours));
+        let (n, _, memo, c) = try_decrypt_ironwood_sent(&action, &fvk).unwrap();
+        assert_eq!((n, *memo.as_array(), c), (note, [0x77; 512], ours));
     }
 }
