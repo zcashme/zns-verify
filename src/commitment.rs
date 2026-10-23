@@ -116,8 +116,13 @@ pub fn note_commitment_cmx(
     psi: pallas::Base,
     rcm: pallas::Scalar,
 ) -> Option<ExtractedNoteCommitment> {
-    note_commitment(g_d, pk_d, value, rho, psi, rcm)
-        .map(|cm| ExtractedNoteCommitment(extract_p(&cm)))
+    let domain = sinsemilla::CommitDomain::new("z.cash:Orchard-NoteCommit");
+    let value_bytes = value.to_le_bytes();
+    let rho_bytes = rho.to_bytes();
+    let psi_bytes = psi.to_repr();
+    let bits = note_commitment_bits(&g_d, &pk_d, &value_bytes, &rho_bytes, &psi_bytes);
+
+    Option::<pallas::Base>::from(domain.short_commit(bits, &rcm)).map(ExtractedNoteCommitment)
 }
 
 /// The Sinsemilla note commitment point itself (Protocol Spec §5.4.8.4).
@@ -134,16 +139,25 @@ fn note_commitment(
     let value_bytes = value.to_le_bytes();
     let rho_bytes = rho.to_bytes();
     let psi_bytes = psi.to_repr();
+    let bits = note_commitment_bits(&g_d, &pk_d, &value_bytes, &rho_bytes, &psi_bytes);
 
-    let bits = le_bytes_lsb0(&g_d)
-        .chain(le_bytes_lsb0(&pk_d))
-        .chain(le_bytes_lsb0(&value_bytes))
-        .chain(le_bytes_lsb0(&rho_bytes).take(L_ORCHARD_BASE))
-        .chain(le_bytes_lsb0(&psi_bytes).take(L_ORCHARD_BASE));
+    Option::<pallas::Point>::from(domain.commit(bits, &rcm))
+}
 
-    let cm = Option::<pallas::Point>::from(domain.commit(bits, &rcm))?;
-    // The identity has no x-coordinate, so it can never be an on-chain cmx.
-    (!bool::from(cm.is_identity())).then_some(cm)
+/// The NoteCommit message `g_d || pk_d || v || rho || psi` as LSB-first bits,
+/// shared by `cmx` and the nullifier so the two cannot encode it differently.
+fn note_commitment_bits<'a>(
+    g_d: &'a [u8; 32],
+    pk_d: &'a [u8; 32],
+    value: &'a [u8; 8],
+    rho: &'a [u8; 32],
+    psi: &'a [u8; 32],
+) -> impl Iterator<Item = bool> + 'a {
+    le_bytes_lsb0(g_d)
+        .chain(le_bytes_lsb0(pk_d))
+        .chain(le_bytes_lsb0(value))
+        .chain(le_bytes_lsb0(rho).take(L_ORCHARD_BASE))
+        .chain(le_bytes_lsb0(psi).take(L_ORCHARD_BASE))
 }
 
 /// `g_d` for a diversifier (Protocol Spec §5.4.1.6, `DiversifyHash`): the
@@ -172,7 +186,7 @@ pub fn diversify_hash(diversifier: &[u8; 11]) -> [u8; 32] {
 /// [`crate::authorized_transition`] when the next transition arrives.
 ///
 /// Returns `None` when `nk` is not a canonical field element or the
-/// commitment is the identity point.
+/// commitment is undefined, exactly when [`note_commitment_cmx`] is `None`.
 pub fn name_note_nullifier(
     nk: &[u8; 32],
     g_d: [u8; 32],
