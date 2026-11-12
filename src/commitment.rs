@@ -127,6 +127,47 @@ pub fn note_commitment_cmx(
     Option::<pallas::Base>::from(domain.short_commit(bits, &rcm)).map(ExtractedNoteCommitment)
 }
 
+/// The binding domain of a bound Name Note's rseed: its BLAKE2b
+/// personalization (zcashme/zns-mint#480).
+pub const NAME_NOTE_PERSONALIZATION: &[u8; 16] = b"ZNS___Name_Notes";
+
+/// The record kind of every Name Note.
+pub const NAME_NOTE_KIND: u8 = 0x01;
+
+/// Derives a bound Name Note's rseed from its record (bound-notes draft ZIP):
+/// BLAKE2b-256, personalization [`NAME_NOTE_PERSONALIZATION`], over
+/// `kind ‖ I2LEOSP64(len(fields)) ‖ fields ‖ prev`.
+///
+/// `fields` is `action:name:ua:expires_at`, the memo text between `ZNS:` and
+/// the predecessor. `prev` is the predecessor's cmx, or all zero for a claim.
+pub fn name_note_rseed(
+    action: &[u8],
+    name: &[u8],
+    ua: &[u8],
+    expires_at: &[u8],
+    prev: &[u8; 32],
+) -> [u8; 32] {
+    let fields_len = action.len() + name.len() + ua.len() + expires_at.len() + 3;
+    let mut h = Params::new()
+        .hash_length(32)
+        .personal(NAME_NOTE_PERSONALIZATION)
+        .to_state();
+    h.update(&[NAME_NOTE_KIND]);
+    h.update(&(fields_len as u64).to_le_bytes());
+    h.update(action);
+    h.update(b":");
+    h.update(name);
+    h.update(b":");
+    h.update(ua);
+    h.update(b":");
+    h.update(expires_at);
+    h.update(prev);
+    h.finalize()
+        .as_bytes()
+        .try_into()
+        .expect("BLAKE2b-256 output is 32 bytes")
+}
+
 /// `PRF^expand` personalization (Zcash protocol spec § 5.4.2).
 const PRF_EXPAND_PERSONALIZATION: &[u8; 16] = b"Zcash_ExpandSeed";
 
