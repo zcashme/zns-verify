@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-12
+
+### Added
+
+- Bound Name Notes (zcashme/zns-mint#480): the record gives the note's
+  `rseed`, and the `rseed` gives ψ and rcm as for any Ironwood note.
+  - `name_note_rseed`: BLAKE2b-256, personalization
+    `NAME_NOTE_PERSONALIZATION` (`ZNS___Name_Notes`), over
+    `NAME_NOTE_KIND` (`0x01`) ‖ 8-byte length ‖ `action:name:ua:expires_at` ‖
+    predecessor cmx (zero for a claim).
+  - `psi_from_rseed` and `rcm_from_rseed`: the Ironwood (lead byte `0x03`)
+    derivations, hand-rolled in the `no_std` kernel.
+  - `verify_bound_name_note`: the commitment check for a bound Name Note,
+    with the same inputs as `verify_name_note`.
+  - `tests/bound_vectors.rs`: rseed and cmx vectors for a claim, an update and
+    a release.
+- The rcm/ψ Name Note API is unchanged. `decrypt` returns both kinds of Name
+  Note; check each with the matching function.
+
+## [0.2.0] - 2026-10-23
+
 ### Changed
 
 - `decrypt` builds on crates.io `orchard 0.16` and `zcash_protocol 0.11`

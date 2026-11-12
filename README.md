@@ -58,6 +58,25 @@ the note's recipient.
   grammar as a three-variant enum (`Claim` / `Update` / `Release`) with validated
   field types (`Name`, `Ua`, `Expiry`, `PrevRcm`).
 - `prev_rcm_for` -- the per-name transition rule: which `prev_rcm` an action must extend.
+
+### Bound Name Notes
+
+Name Notes are moving to bound notes (zcashme/zns-mint#480): the note's `rseed`
+is computed from its record, and ψ and rcm follow from that `rseed` as for any
+Ironwood note. The memo grammar is the same; the last field holds the
+predecessor's `cmx` instead of its `rcm`.
+
+- `name_note_rseed(action, name, ua, expires_at, prev)` -- BLAKE2b-256 with
+  personalization `ZNS___Name_Notes` over `0x01 ‖ I2LEOSP64(len) ‖
+  action:name:ua:expires_at ‖ prev`.
+- `psi_from_rseed` / `rcm_from_rseed` -- the Ironwood derivations from an `rseed`.
+- `verify_bound_name_note(...)` -- the commitment check for a bound Name Note
+  (consistent, not authorised, as above). `authorized_transition` applies as
+  is, with the tip's `cmx` in `Tip::rcm`.
+
+A caller knows which kind of Name Note it is checking from where it reads it:
+notes from before the Registry's move are rcm/ψ notes (`verify_name_note`),
+notes after it are bound notes (`verify_bound_name_note`).
 - The canonical strict Name Note memo grammar (one parser for registry, resolver, etc.).
 - Out of scope: request memos (user -> Mint treasury intake). They are never
   committed on chain and have no role in verification.

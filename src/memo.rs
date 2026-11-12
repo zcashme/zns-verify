@@ -219,7 +219,8 @@ pub const ZERO_PREV_RCM: [u8; 32] = [0u8; 32];
 pub struct Tip {
     /// The latest action.
     pub action: Action,
-    /// The `rcm` the next action must extend.
+    /// The value the next action must extend: the tip's `rcm` for an rcm/ψ
+    /// Name Note, its `cmx` for a bound Name Note.
     pub rcm: [u8; 32],
 }
 
