@@ -4,7 +4,10 @@
 //! The note goes to a fixed Registry address (`G_D`, `PK_D`) with
 //! rho = [0x33; 32] and value = 0. The bound UA is the WP §3.5 address.
 
-use zns_verify::{name_note_rseed, note_commitment_cmx, psi_from_rseed, rcm_from_rseed, Rho};
+use zns_verify::{
+    name_note_rseed, note_commitment_cmx, psi_from_rseed, rcm_from_rseed, verify_bound_name_note,
+    ExtractedNoteCommitment, Memo, NameNote, Rho,
+};
 
 const G_D: &str = "dd0c23bc9720ff21aaab76a7b7276231ee212f156e9c318c355972628efed408";
 const PK_D: &str = "81a5fe8f45b34630f29d0c8dd8dc1cc3573386f416cb324133156d723df5e62d";
@@ -61,6 +64,38 @@ fn rseed_vectors_match() {
         let rseed = name_note_rseed(v.action, v.name, UA, v.expires_at, &v.prev);
         assert_eq!(hex::encode(rseed), v.expected_rseed_hex, "{}", v.label);
     }
+}
+
+#[test]
+fn memo_verifies_against_its_cmx_only() {
+    let (g_d, pk_d) = (bytes32(G_D), bytes32(PK_D));
+    let rho = Rho::from_bytes(&[0x33u8; 32]).unwrap();
+    let text = format!(
+        "ZNS:claim:alice:{}:none:{}",
+        core::str::from_utf8(UA).unwrap(),
+        "0".repeat(64)
+    );
+    let memo = Memo::from_bytes(text.as_bytes()).unwrap();
+    let note = NameNote::parse(&memo).unwrap();
+
+    let claim_cmx = ExtractedNoteCommitment::from_bytes(&bytes32(VECTORS[0].expected_cmx_hex));
+    let update_cmx = ExtractedNoteCommitment::from_bytes(&bytes32(VECTORS[1].expected_cmx_hex));
+    assert!(verify_bound_name_note(
+        &note,
+        g_d,
+        pk_d,
+        0,
+        rho,
+        claim_cmx.unwrap()
+    ));
+    assert!(!verify_bound_name_note(
+        &note,
+        g_d,
+        pk_d,
+        0,
+        rho,
+        update_cmx.unwrap()
+    ));
 }
 
 #[test]
