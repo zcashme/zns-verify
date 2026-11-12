@@ -127,6 +127,51 @@ pub fn note_commitment_cmx(
     Option::<pallas::Base>::from(domain.short_commit(bits, &rcm)).map(ExtractedNoteCommitment)
 }
 
+/// `PRF^expand` personalization (Zcash protocol spec § 5.4.2).
+const PRF_EXPAND_PERSONALIZATION: &[u8; 16] = b"Zcash_ExpandSeed";
+
+/// Derives an Ironwood note's ψ from its `rseed` (protocol spec § 4.7.3):
+/// `ToBase(PRF^expand_rseed([0x09] ‖ ρ))`.
+pub fn psi_from_rseed(rseed: &[u8; 32], rho: Rho) -> pallas::Base {
+    pallas::Base::from_uniform_bytes(&prf_expand(rseed, &[&[0x09], &rho.to_bytes()]))
+}
+
+/// Derives an Ironwood note's rcm from its `rseed` (ZIP 2005, note plaintext
+/// lead byte `0x03`):
+/// `ToScalar(PRF^expand_rseed([0x0B] ‖ g_d ‖ pk_d ‖ I2LEOSP64(v) ‖ ρ ‖ ψ))`.
+pub fn rcm_from_rseed(
+    rseed: &[u8; 32],
+    rho: Rho,
+    g_d: [u8; 32],
+    pk_d: [u8; 32],
+    value: u64,
+    psi: pallas::Base,
+) -> pallas::Scalar {
+    pallas::Scalar::from_uniform_bytes(&prf_expand(
+        rseed,
+        &[
+            &[0x0B],
+            &g_d,
+            &pk_d,
+            &value.to_le_bytes(),
+            &rho.to_bytes(),
+            &psi.to_repr(),
+        ],
+    ))
+}
+
+fn prf_expand(rseed: &[u8; 32], parts: &[&[u8]]) -> [u8; 64] {
+    let mut h = Params::new()
+        .hash_length(64)
+        .personal(PRF_EXPAND_PERSONALIZATION)
+        .to_state();
+    h.update(rseed);
+    for part in parts {
+        h.update(part);
+    }
+    *h.finalize().as_array()
+}
+
 fn le_bytes_lsb0(bytes: &[u8]) -> impl Iterator<Item = bool> + '_ {
     bytes
         .iter()
