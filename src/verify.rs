@@ -15,7 +15,7 @@ use crate::commitment::{
     name_note_rseed, note_commitment_cmx, psi_from_rseed, rcm_from_rseed, zns_psi_rcm,
     ExtractedNoteCommitment, Rho,
 };
-use crate::memo::{NameNote, PrevRcm};
+use crate::memo::{Expiry, NameNote, PrevRcm};
 use pasta_curves::pallas;
 
 /// Returns `true` when the note's fields reproduce the on-chain `cmx`.
@@ -93,15 +93,10 @@ pub fn verify_bound_name_note(
 }
 
 fn expiry_and_prev<'a>(note: &NameNote<'a>) -> (&'a str, PrevRcm) {
-    match note {
-        NameNote::Claim { expires_at, .. } => (expires_at.field_bytes(), PrevRcm::ZERO),
-        NameNote::Update {
-            expires_at,
-            prev_rcm,
-            ..
-        } => (expires_at.field_bytes(), *prev_rcm),
-        NameNote::Release { prev_rcm, .. } => ("none", *prev_rcm),
-    }
+    (
+        note.expires_at().unwrap_or(Expiry::NEVER).field_bytes(),
+        note.prev_rcm().unwrap_or(PrevRcm::ZERO),
+    )
 }
 
 #[cfg(test)]

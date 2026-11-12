@@ -31,10 +31,10 @@ pub fn zns_psi_rcm(
     expires_at: &[u8],
     prev_rcm: &[u8; 32],
 ) -> (pallas::Base, pallas::Scalar) {
-    let psi = pallas::Base::from_uniform_bytes(&tagged_zns_hash(
+    let psi = to_base(&tagged_zns_hash(
         TAG_PSI, action, name, ua, expires_at, prev_rcm,
     ));
-    let rcm = pallas::Scalar::from_uniform_bytes(&tagged_zns_hash(
+    let rcm = to_scalar(&tagged_zns_hash(
         TAG_RCM, action, name, ua, expires_at, prev_rcm,
     ));
     (psi, rcm)
@@ -60,9 +60,7 @@ fn tagged_zns_hash(
     absorb_with_length_prefix(ua);
     absorb_with_length_prefix(expires_at);
     h.update(prev_rcm);
-    let mut out = [0u8; 64];
-    out.copy_from_slice(h.finalize().as_bytes());
-    out
+    *h.finalize().as_array()
 }
 
 /// The extracted note commitment (`cmx`) of a Name Note (WP §3.4) -- the
