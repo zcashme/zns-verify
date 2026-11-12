@@ -1,5 +1,10 @@
-//! The ZNS commitment derivation: (ψ, rcm) from the binding tuple (WP §3.3),
-//! and the Sinsemilla note commitment (WP §3.4).
+//! The Name Note commitment derivations, and the Sinsemilla note commitment
+//! (WP §3.4) both share.
+//!
+//! An rcm/ψ Name Note takes (ψ, rcm) directly from its record (WP §3.3,
+//! [`zns_psi_rcm`]). A bound Name Note takes its rseed from its record
+//! ([`name_note_rseed`]), and ψ and rcm from that rseed as any Ironwood note
+//! does ([`psi_from_rseed`], [`rcm_from_rseed`]).
 
 use blake2b_simd::Params;
 use group::ff::{FromUniformBytes, PrimeField};
@@ -31,10 +36,10 @@ pub fn zns_psi_rcm(
     expires_at: &[u8],
     prev_rcm: &[u8; 32],
 ) -> (pallas::Base, pallas::Scalar) {
-    let psi = pallas::Base::from_uniform_bytes(&tagged_zns_hash(
+    let psi = to_base(&tagged_zns_hash(
         TAG_PSI, action, name, ua, expires_at, prev_rcm,
     ));
-    let rcm = pallas::Scalar::from_uniform_bytes(&tagged_zns_hash(
+    let rcm = to_scalar(&tagged_zns_hash(
         TAG_RCM, action, name, ua, expires_at, prev_rcm,
     ));
     (psi, rcm)
@@ -60,9 +65,7 @@ fn tagged_zns_hash(
     absorb_with_length_prefix(ua);
     absorb_with_length_prefix(expires_at);
     h.update(prev_rcm);
-    let mut out = [0u8; 64];
-    out.copy_from_slice(h.finalize().as_bytes());
-    out
+    *h.finalize().as_array()
 }
 
 /// The extracted note commitment (`cmx`) of a Name Note (WP §3.4) -- the
@@ -125,6 +128,145 @@ pub fn note_commitment_cmx(
         .chain(le_bytes_lsb0(&psi_bytes).take(L_ORCHARD_BASE));
 
     Option::<pallas::Base>::from(domain.short_commit(bits, &rcm)).map(ExtractedNoteCommitment)
+}
+
+/// The binding domain of a bound Name Note's rseed: its BLAKE2b
+/// personalization (zcashme/zns-mint#480).
+pub const NAME_NOTE_PERSONALIZATION: &[u8; 16] = b"ZNS___Name_Notes";
+
+/// The record kind of every Name Note.
+pub const NAME_NOTE_KIND: u8 = 0x01;
+
+/// Derives a bound Name Note's rseed from its record (bound-notes draft ZIP):
+/// BLAKE2b-256, personalization [`NAME_NOTE_PERSONALIZATION`], over
+/// `kind ‖ I2LEOSP64(len(fields)) ‖ fields ‖ prev`.
+///
+/// `fields` is `action:name:ua:expires_at`, the memo text between `ZNS:` and
+/// the predecessor. `prev` is the predecessor's cmx, or all zero for a claim.
+pub fn name_note_rseed(
+    action: &[u8],
+    name: &[u8],
+    ua: &[u8],
+    expires_at: &[u8],
+    prev: &[u8; 32],
+) -> [u8; 32] {
+    let fields_len = action.len() + name.len() + ua.len() + expires_at.len() + 3;
+    let mut h = Params::new()
+        .hash_length(32)
+        .personal(NAME_NOTE_PERSONALIZATION)
+        .to_state();
+    h.update(&[NAME_NOTE_KIND]);
+    h.update(&(fields_len as u64).to_le_bytes());
+    h.update(action);
+    h.update(b":");
+    h.update(name);
+    h.update(b":");
+    h.update(ua);
+    h.update(b":");
+    h.update(expires_at);
+    h.update(prev);
+    h.finalize()
+        .as_bytes()
+        .try_into()
+        .expect("BLAKE2b-256 output is 32 bytes")
+}
+
+/// `PRF^expand` personalization.
+const PRF_EXPAND_PERSONALIZATION: &[u8; 16] = b"Zcash_ExpandSeed";
+
+/// `PRF^expand` domain separator for ψ (`PrfExpand::PSI`).
+const PRF_EXPAND_PSI: u8 = 0x09;
+
+/// `PRF^expand` domain separator for an Ironwood note's rcm ([ZIP 2005]).
+///
+/// [ZIP 2005]: https://zips.z.cash/zip-2005
+const PRF_EXPAND_RCM_IRONWOOD: u8 = 0x0B;
+
+/// Derives an Ironwood note's ψ from its `rseed`:
+/// $\psi = \mathsf{ToBase}^\mathsf{Orchard}(\mathsf{PRF}^\mathsf{expand}_\mathsf{rseed}([\mathtt{0x09}] \| \underline{\rho}))$.
+///
+/// Defined in [Zcash Protocol Spec § 4.7.3: Sending Notes (Orchard)][orchardsend].
+///
+/// [orchardsend]: https://zips.z.cash/protocol/nu5.pdf#orchardsend
+pub fn psi_from_rseed(rseed: &[u8; 32], rho: Rho) -> pallas::Base {
+    to_base(&prf_expand(rseed, PRF_EXPAND_PSI, &[&rho.to_bytes()]))
+}
+
+/// Derives an Ironwood note's rcm from its `rseed`, for note plaintext lead
+/// byte `0x03`:
+///
+/// $$
+/// \mathsf{pre}_\mathsf{rcm} = [\mathtt{0x0B}] \| \mathsf{g}^\star_\mathsf{d} \| \mathsf{pk}^\star_\mathsf{d}
+/// \| \mathsf{I2LEOSP}_{64}(\mathsf{v}) \| \underline{\rho} \| \mathsf{I2LEOSP}_{256}(\psi)
+/// $$
+///
+/// $$
+/// \mathsf{rcm} = \mathsf{ToScalar}^\mathsf{Orchard}(\mathsf{PRF}^\mathsf{expand}_\mathsf{rseed}(\mathsf{pre}_\mathsf{rcm}))
+/// $$
+///
+/// Defined in [ZIP 2005].
+///
+/// [ZIP 2005]: https://zips.z.cash/zip-2005
+pub fn rcm_from_rseed(
+    rseed: &[u8; 32],
+    rho: Rho,
+    g_d: [u8; 32],
+    pk_d: [u8; 32],
+    value: u64,
+    psi: pallas::Base,
+) -> pallas::Scalar {
+    to_scalar(&prf_expand(
+        rseed,
+        PRF_EXPAND_RCM_IRONWOOD,
+        &[
+            // g_d: LEBS2OSP_256(repr_P(g_d)), compressed Pallas point (32 bytes)
+            &g_d,
+            // pk_d: LEBS2OSP_256(repr_P(pk_d)), compressed Pallas point (32 bytes)
+            &pk_d,
+            // v: I2LEOSP_64(v), unsigned 64-bit little-endian (8 bytes)
+            &value.to_le_bytes(),
+            // rho: Pallas base field canonical repr (32 bytes)
+            &rho.to_bytes(),
+            // psi: Pallas base field canonical repr (32 bytes)
+            &psi.to_repr(),
+        ],
+    ))
+}
+
+/// $\mathsf{PRF}^\mathsf{expand}(sk, dst, a, b, ...) := \mathsf{BLAKE2b\text{-}512}(\texttt{"Zcash\_ExpandSeed"}, sk \| dst \| a \| b \| ...)$
+///
+/// Defined in [Zcash Protocol Spec § 5.4.2: Pseudo Random Functions][concreteprfs].
+///
+/// [concreteprfs]: https://zips.z.cash/protocol/protocol.pdf#concreteprfs
+fn prf_expand(sk: &[u8; 32], dst: u8, ts: &[&[u8]]) -> [u8; 64] {
+    let mut h = Params::new()
+        .hash_length(64)
+        .personal(PRF_EXPAND_PERSONALIZATION)
+        .to_state();
+    h.update(sk);
+    h.update(&[dst]);
+    for t in ts {
+        h.update(t);
+    }
+    *h.finalize().as_array()
+}
+
+/// $\mathsf{ToBase}^\mathsf{Orchard}(x) := LEOS2IP_{\ell_\mathsf{PRFexpand}}(x) \pmod{q_P}$
+///
+/// Defined in [Zcash Protocol Spec § 4.2.3: Orchard Key Components][orchardkeycomponents].
+///
+/// [orchardkeycomponents]: https://zips.z.cash/protocol/nu5.pdf#orchardkeycomponents
+fn to_base(x: &[u8; 64]) -> pallas::Base {
+    pallas::Base::from_uniform_bytes(x)
+}
+
+/// $\mathsf{ToScalar}^\mathsf{Orchard}(x) := LEOS2IP_{\ell_\mathsf{PRFexpand}}(x) \pmod{r_P}$
+///
+/// Defined in [Zcash Protocol Spec § 4.2.3: Orchard Key Components][orchardkeycomponents].
+///
+/// [orchardkeycomponents]: https://zips.z.cash/protocol/nu5.pdf#orchardkeycomponents
+fn to_scalar(x: &[u8; 64]) -> pallas::Scalar {
+    pallas::Scalar::from_uniform_bytes(x)
 }
 
 fn le_bytes_lsb0(bytes: &[u8]) -> impl Iterator<Item = bool> + '_ {

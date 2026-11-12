@@ -32,7 +32,7 @@ Auditability, determinism, and minimality are the product. "Looks nice in Rust" 
    - Cross-language test vectors in `tests/vectors.rs` are sacred. Existing vectors never change. They are the interop contract.
 
 3. **Recompute, don't trust (commitment math only)**  
-   `verify_name_note` is the capstone for **consistency**: it re-derives `(ψ, rcm)` from `(action, name, ua, expires_at, prev_rcm)` and recomputes the Sinsemilla `cmx`. The caller does not have to believe any external party for that step. Do not document or market that `true` as an authorised binding. Authorisation is `authorized_transition`, and it still needs the commitment check.
+   `verify_name_note` and `verify_bound_name_note` are the capstone for **consistency**: they re-derive `(ψ, rcm)` from `(action, name, ua, expires_at, prev_rcm)`, directly or through the bound note's rseed, and recompute the Sinsemilla `cmx`. The caller does not have to believe any external party for that step. Do not document or market that `true` as an authorised binding. Authorisation is `authorized_transition`, and it still needs the commitment check.
 
 4. **One copy of the state machine**  
    `memo::prev_rcm_for` is the chain-shape rule. `authorized_transition` is the spend rule. Each has one implementation that registry minter, resolver, and verifier use identically.
