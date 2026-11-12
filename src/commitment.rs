@@ -168,18 +168,42 @@ pub fn name_note_rseed(
         .expect("BLAKE2b-256 output is 32 bytes")
 }
 
-/// `PRF^expand` personalization (Zcash protocol spec § 5.4.2).
+/// `PRF^expand` personalization.
 const PRF_EXPAND_PERSONALIZATION: &[u8; 16] = b"Zcash_ExpandSeed";
 
-/// Derives an Ironwood note's ψ from its `rseed` (protocol spec § 4.7.3):
-/// `ToBase(PRF^expand_rseed([0x09] ‖ ρ))`.
+/// `PRF^expand` domain separator for ψ (`PrfExpand::PSI`).
+const PRF_EXPAND_PSI: u8 = 0x09;
+
+/// `PRF^expand` domain separator for an Ironwood note's rcm ([ZIP 2005]).
+///
+/// [ZIP 2005]: https://zips.z.cash/zip-2005
+const PRF_EXPAND_RCM_IRONWOOD: u8 = 0x0B;
+
+/// Derives an Ironwood note's ψ from its `rseed`:
+/// $\psi = \mathsf{ToBase}^\mathsf{Orchard}(\mathsf{PRF}^\mathsf{expand}_\mathsf{rseed}([\mathtt{0x09}] \| \underline{\rho}))$.
+///
+/// Defined in [Zcash Protocol Spec § 4.7.3: Sending Notes (Orchard)][orchardsend].
+///
+/// [orchardsend]: https://zips.z.cash/protocol/nu5.pdf#orchardsend
 pub fn psi_from_rseed(rseed: &[u8; 32], rho: Rho) -> pallas::Base {
-    pallas::Base::from_uniform_bytes(&prf_expand(rseed, &[&[0x09], &rho.to_bytes()]))
+    to_base(&prf_expand(rseed, PRF_EXPAND_PSI, &[&rho.to_bytes()]))
 }
 
-/// Derives an Ironwood note's rcm from its `rseed` (ZIP 2005, note plaintext
-/// lead byte `0x03`):
-/// `ToScalar(PRF^expand_rseed([0x0B] ‖ g_d ‖ pk_d ‖ I2LEOSP64(v) ‖ ρ ‖ ψ))`.
+/// Derives an Ironwood note's rcm from its `rseed`, for note plaintext lead
+/// byte `0x03`:
+///
+/// $$
+/// \mathsf{pre}_\mathsf{rcm} = [\mathtt{0x0B}] \| \mathsf{g}^\star_\mathsf{d} \| \mathsf{pk}^\star_\mathsf{d}
+/// \| \mathsf{I2LEOSP}_{64}(\mathsf{v}) \| \underline{\rho} \| \mathsf{I2LEOSP}_{256}(\psi)
+/// $$
+///
+/// $$
+/// \mathsf{rcm} = \mathsf{ToScalar}^\mathsf{Orchard}(\mathsf{PRF}^\mathsf{expand}_\mathsf{rseed}(\mathsf{pre}_\mathsf{rcm}))
+/// $$
+///
+/// Defined in [ZIP 2005].
+///
+/// [ZIP 2005]: https://zips.z.cash/zip-2005
 pub fn rcm_from_rseed(
     rseed: &[u8; 32],
     rho: Rho,
@@ -188,29 +212,58 @@ pub fn rcm_from_rseed(
     value: u64,
     psi: pallas::Base,
 ) -> pallas::Scalar {
-    pallas::Scalar::from_uniform_bytes(&prf_expand(
+    to_scalar(&prf_expand(
         rseed,
+        PRF_EXPAND_RCM_IRONWOOD,
         &[
-            &[0x0B],
+            // g_d: LEBS2OSP_256(repr_P(g_d)), compressed Pallas point (32 bytes)
             &g_d,
+            // pk_d: LEBS2OSP_256(repr_P(pk_d)), compressed Pallas point (32 bytes)
             &pk_d,
+            // v: I2LEOSP_64(v), unsigned 64-bit little-endian (8 bytes)
             &value.to_le_bytes(),
+            // rho: Pallas base field canonical repr (32 bytes)
             &rho.to_bytes(),
+            // psi: Pallas base field canonical repr (32 bytes)
             &psi.to_repr(),
         ],
     ))
 }
 
-fn prf_expand(rseed: &[u8; 32], parts: &[&[u8]]) -> [u8; 64] {
+/// $\mathsf{PRF}^\mathsf{expand}(sk, dst, a, b, ...) := \mathsf{BLAKE2b\text{-}512}(\texttt{"Zcash\_ExpandSeed"}, sk \| dst \| a \| b \| ...)$
+///
+/// Defined in [Zcash Protocol Spec § 5.4.2: Pseudo Random Functions][concreteprfs].
+///
+/// [concreteprfs]: https://zips.z.cash/protocol/protocol.pdf#concreteprfs
+fn prf_expand(sk: &[u8; 32], dst: u8, ts: &[&[u8]]) -> [u8; 64] {
     let mut h = Params::new()
         .hash_length(64)
         .personal(PRF_EXPAND_PERSONALIZATION)
         .to_state();
-    h.update(rseed);
-    for part in parts {
-        h.update(part);
+    h.update(sk);
+    h.update(&[dst]);
+    for t in ts {
+        h.update(t);
     }
     *h.finalize().as_array()
+}
+
+/// $\mathsf{ToBase}^\mathsf{Orchard}(x) := LEOS2IP_{\ell_\mathsf{PRFexpand}}(x) \pmod{q_P}$
+///
+/// Defined in [Zcash Protocol Spec § 4.2.3: Orchard Key Components][orchardkeycomponents].
+///
+/// [orchardkeycomponents]: https://zips.z.cash/protocol/nu5.pdf#orchardkeycomponents
+fn to_base(x: &[u8; 64]) -> pallas::Base {
+    pallas::Base::from_uniform_bytes(x)
+}
+
+/// $\mathsf{ToScalar}^\mathsf{Orchard}(x) := LEOS2IP_{\ell_\mathsf{PRFexpand}}(x) \pmod{r_P}$
+///
+/// Defined in [Zcash Protocol Spec § 4.2.3: Orchard Key Components][orchardkeycomponents].
+///
+/// [orchardkeycomponents]: https://zips.z.cash/protocol/nu5.pdf#orchardkeycomponents
+fn to_scalar(x: &[u8; 64]) -> pallas::Scalar {
+    pallas::Scalar::from_uniform_bytes(x)
 }
 
 fn le_bytes_lsb0(bytes: &[u8]) -> impl Iterator<Item = bool> + '_ {
