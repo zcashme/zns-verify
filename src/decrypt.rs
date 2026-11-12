@@ -135,8 +135,8 @@ mod tests {
     }
 
     /// The one difference from Ironwood: a note published under a cmx other
-    /// than its rseed one (as every Name Note is) decrypts, and comes back
-    /// with the cmx the action published.
+    /// than its rseed one (as every rcm/ψ Name Note is) decrypts, and comes
+    /// back with the cmx the action published.
     #[test]
     fn a_note_under_a_foreign_cmx_decrypts() {
         let (fvk, note) = received_note();

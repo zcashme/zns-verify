@@ -1,6 +1,8 @@
 //! Name Note **commitment** verification (WP §3.4).
 //!
-//! [`verify_name_note`] checks **consistency**: the parsed memo fields, the note
+//! [`verify_name_note`] checks an rcm/ψ Name Note and
+//! [`verify_bound_name_note`] a bound one. Each checks **consistency**: the
+//! parsed memo fields, the note
 //! components you supply (`g_d`, `pk_d`, `value`, `rho`), and the on-chain `cmx`
 //! all agree. It does **not** check **authorship**. A wallet that treats `true`
 //! as "this name is mine" can accept a forged binding. The spend rule is

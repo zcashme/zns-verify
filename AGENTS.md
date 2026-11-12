@@ -8,7 +8,7 @@ Use the content of PRAGMATISM.md (or the principles below) when writing, reviewi
 
 zns-verify is the ZcashName (ZNS) verification kernel -- the minimal primitive the trust model rests on.
 
-A ZcashName binding lives inside a Name Note's commitment. Its (rcm, psi) are a deterministic hash of (action, name, ua, expires_at, prev_rcm), and the chain commits to that hash through the note's cmx. This crate recomputes the commitment from the note's fields and compares it to the on-chain cmx. Match: the memo fields are **consistent** with that `cmx` (same hash math any indexer would apply). No match: they are not. You reach that hash conclusion without trusting any registry, resolver, or indexer for the recomputation.
+A ZcashName binding lives inside a Name Note's commitment. For an rcm/ψ Name Note, (rcm, psi) are a deterministic hash of (action, name, ua, expires_at, prev_rcm); for a bound Name Note, the rseed is a deterministic hash of the same record and (rcm, psi) follow from it as for any Ironwood note. Either way the chain commits to that hash through the note's cmx. This crate recomputes the commitment from the note's fields and compares it to the on-chain cmx. Match: the memo fields are **consistent** with that `cmx` (same hash math any indexer would apply). No match: they are not. You reach that hash conclusion without trusting any registry, resolver, or indexer for the recomputation.
 
 Match is **not** Mint **authorship**: the Registry key spending the live tip or claim anchor. `verify_name_note` does not check spends. `authorized_transition` does, given the revealed nullifiers and the tip nullifier stored from the previous note. Anyone can create a zero-value note to the registry address whose commitment verifies, so a wallet that treats `verify_name_note == true` alone as an authorised binding can be given a forged one. README **Trust boundary** and `src/verify.rs` state this explicitly.
 
@@ -23,7 +23,8 @@ path.
 
 - `zns_psi_rcm(action, name, ua, expires_at, prev_rcm) -> (psi, rcm)` -- re-derive the deterministic commitment randomness.
 - `note_commitment_cmx(...)` -- recompute the Sinsemilla note commitment.
-- `verify_name_note(...)` -- recompute and compare against cmx; `true` means consistent, not authorised.
+- `name_note_rseed(...)`, `psi_from_rseed(...)`, `rcm_from_rseed(...)` -- a bound Name Note's rseed from its record, and ψ and rcm from that rseed.
+- `verify_name_note(...)` / `verify_bound_name_note(...)` -- recompute and compare against cmx; `true` means consistent, not authorised.
 - `authorized_transition(...)` -- the Registry spend rule. True only together with `verify_name_note`.
 - `NameNote::parse(&Memo)` / `note.encode()` -- the canonical Name Note memo grammar as a three-variant enum with validated field types (`Name`, `Expiry`, `PrevRcm`). One strict parser shared by registry, resolver, and slash contract. Agreement is by construction.
 - `memo::prev_rcm_for` -- the per-name chain-shape rule: which prev_rcm an action must extend, given the name's tip. `authorized_transition` applies it.

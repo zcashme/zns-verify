@@ -1,5 +1,10 @@
-//! The ZNS commitment derivation: (ψ, rcm) from the binding tuple (WP §3.3),
-//! and the Sinsemilla note commitment (WP §3.4).
+//! The Name Note commitment derivations, and the Sinsemilla note commitment
+//! (WP §3.4) both share.
+//!
+//! An rcm/ψ Name Note takes (ψ, rcm) directly from its record (WP §3.3,
+//! [`zns_psi_rcm`]). A bound Name Note takes its rseed from its record
+//! ([`name_note_rseed`]), and ψ and rcm from that rseed as any Ironwood note
+//! does ([`psi_from_rseed`], [`rcm_from_rseed`]).
 
 use blake2b_simd::Params;
 use group::ff::{FromUniformBytes, PrimeField};

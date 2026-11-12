@@ -2,7 +2,8 @@
 //!
 //! [`authorized_transition`] is true when this transaction spends the
 //! predecessor the action requires and the note's `prev_rcm` extends that
-//! tip. [`crate::verify_name_note`] is separate: a memo can reproduce `cmx`
+//! tip. The commitment check ([`crate::verify_name_note`],
+//! [`crate::verify_bound_name_note`]) is separate: a memo can reproduce `cmx`
 //! without the Registry key having spent anything.
 
 use crate::memo::{prev_rcm_for, Action, NameNote, PrevRcm, Tip};
@@ -41,7 +42,8 @@ pub struct Transition<'a, 'n> {
 /// `prev_rcm` must be what [`prev_rcm_for`] requires, and the transaction
 /// must contain one Name Note.
 ///
-/// A match here does not inspect `cmx`. Call [`crate::verify_name_note`] too.
+/// A match here does not inspect `cmx`. Call [`crate::verify_name_note`] or
+/// [`crate::verify_bound_name_note`] too.
 #[must_use]
 pub fn authorized_transition(transition: &Transition<'_, '_>) -> bool {
     if !transition.single_name_note || !chain_ok(transition.note, transition.tip) {

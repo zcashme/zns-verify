@@ -5,9 +5,11 @@ wallets and resolvers need not trust an indexer for hash math. It does **not** b
 itself prove that the Mint Registry authorised a transition; see [Trust
 boundary](#trust-boundary) below.
 
-A ZcashName binding lives inside a Name Note's commitment whose `(rcm, ψ)` are a
-deterministic hash of `(action, name, ua, expires_at, prev_rcm)` -- this leaves an on-chain record to
-that hash through the note's `cmx`.
+A ZcashName binding lives inside a Name Note's commitment, through the note's
+`cmx`. An rcm/ψ Name Note's `(rcm, ψ)` are a deterministic hash of
+`(action, name, ua, expires_at, prev_rcm)`. A bound Name Note's `rseed` is a
+deterministic hash of the same record, and its `(rcm, ψ)` follow from that
+`rseed` (see [Bound Name Notes](#bound-name-notes)).
 
 The zns-verify crate recomputes the commitment from
 the note's fields and compares it to the on-chain `cmx`.
@@ -31,15 +33,16 @@ and the Mint's full viewing key is published (WP §6) so any resolver can
 decrypt them. The bound user UA lives in the memo and the commitment, not in
 the note's recipient.
 
-## Why Standard Decryption Rejects Name Notes
+## Why Standard Decryption Rejects rcm/ψ Name Notes
 
 - Standard ZIP-212 derives `rcm` from `rseed` and checks the recomputed `cmx` against the on-chain value.
-- A Name Note's `rcm` comes from `zns_psi_rcm(action, name, ua, expires_at, prev_rcm)`, not `rseed`.
-- So `zcash_note_encryption`'s `try_decrypt` returns `None` for every valid Name Note.
+- An rcm/ψ Name Note's `rcm` comes from `zns_psi_rcm(action, name, ua, expires_at, prev_rcm)`, not `rseed`.
+- So `zcash_note_encryption`'s `try_decrypt` returns `None` for every valid rcm/ψ Name Note.
+- A bound Name Note's `rcm` does come from its `rseed`, so standard decryption accepts it.
 - The `decrypt` feature wraps upstream `IronwoodDomain` (accepts V3 lead byte
   `0x03`), passes the published `cmx` through instead of re-deriving it, and
-  keeps the AEAD authentication; the `cmx` consistency check moves to
-  `verify_name_note`.
+  keeps the AEAD authentication. It returns both kinds of Name Note; the `cmx`
+  consistency check moves to `verify_name_note` or `verify_bound_name_note`.
 
 ## What it does
 
@@ -146,6 +149,10 @@ stored tip nullifier, which only the Registry key can do.
 A binding needs both results. `verify_name_note_with_witness` returns the
 `(ψ, rcm)` opening, from which the caller derives the nullifier to store as the
 next tip.
+
+All of this holds for bound Name Notes, with `verify_bound_name_note` as the
+commitment check: their `rseed` is a hash of public fields too, so a forged
+bound note verifies just as easily, and only the Registry spend separates it.
 
 ## Footprint
 

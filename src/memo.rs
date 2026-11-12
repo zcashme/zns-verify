@@ -510,7 +510,8 @@ mod tests {
         assert_eq!(Action::Update.as_str(), "update");
         assert_eq!(Action::Release.as_str(), "release");
         // as_bytes must stay the byte view of as_str: the spelling is
-        // load-bearing, it is length-prefixed into zns_psi_rcm (WP §3.3).
+        // load-bearing, it is hashed into zns_psi_rcm (WP §3.3) and
+        // name_note_rseed.
         for action in [Action::Claim, Action::Update, Action::Release] {
             assert_eq!(action.as_str().as_bytes(), action.as_bytes());
             assert_eq!(Action::from_bytes(action.as_bytes()), Some(action));
