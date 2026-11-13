@@ -1,7 +1,10 @@
-//! Registry spend lineage for one Name Note.
+//! Registry spend lineage for one Name Note (WP §8.3).
 //!
 //! [`authorized_transition`] is true when this transaction spends the
-//! predecessor the action requires and the note's `prev` extends that tip. The commitment check ([`crate::verify_bound_name_note`]) is separate:
+//! predecessor the action requires and the note's `prev` extends that tip.
+//! It covers the spend and the predecessor only: the caller checks the
+//! rest of WP §8.3. The commitment check
+//! ([`crate::verify_bound_name_note`]) is separate:
 //! a memo can reproduce `cmx` without the Registry key having spent anything.
 
 use crate::memo::{prev_for, Action, NameNote, PrevCmx, Tip};
@@ -163,14 +166,7 @@ mod tests {
         let prev_hex = hex::encode(prev);
         let forged_memo = memo(&format!("ZNS:update:alice:{ATTACKER}:none:{prev_hex}"));
         let forged = parse(&forged_memo);
-        let rseed = name_note_rseed(
-            b"update",
-            b"alice",
-            ATTACKER.as_bytes(),
-            b"none",
-            &[],
-            &prev,
-        );
+        let rseed = name_note_rseed(format!("update:alice:{ATTACKER}:none").as_bytes(), &prev);
         let psi = psi_from_rseed(&rseed, rho());
         let rcm = rcm_from_rseed(&rseed, rho(), G_D, PK_D, 0, psi);
         let cmx = note_commitment_cmx(G_D, PK_D, 0, rho(), psi, rcm).unwrap();

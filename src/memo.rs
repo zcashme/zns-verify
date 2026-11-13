@@ -38,6 +38,17 @@ impl Memo {
         }
         core::str::from_utf8(&self.0[..end]).ok()
     }
+
+    /// The fields `f` of a Name Note memo (WP §4.3): the bytes that follow
+    /// the leading `ZNS:` and precede the colon before `prev`.
+    ///
+    /// `None` when the memo is not `ZNS:<fields>:<prev>` text. This only
+    /// splits the text; [`NameNote::parse`] decides whether it is a Name Note.
+    pub fn fields(&self) -> Option<&[u8]> {
+        let transition = self.text()?.strip_prefix("ZNS:")?;
+        let (fields, _prev) = transition.rsplit_once(':')?;
+        Some(fields.as_bytes())
+    }
 }
 
 /// The maximum name length in bytes (the ZNS name rule bound).
@@ -86,7 +97,7 @@ impl<'a> Ua<'a> {
 }
 
 /// The committed expiration of a registration: exactly `none`, or a
-/// canonical ASCII decimal Unix timestamp in whole seconds (WP §3.1).
+/// canonical ASCII decimal Unix timestamp in whole seconds (WP §4.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Expiry<'a>(&'a str);
 
@@ -94,7 +105,7 @@ impl<'a> Expiry<'a> {
     /// The expiry of a registration without fixed expiration.
     pub const NEVER: Self = Expiry("none");
 
-    /// Validates the `expires_at` memo field (WP §3.1).
+    /// Validates the `expires_at` memo field (WP §4.1).
     ///
     /// Non-canonical spellings are rejected because the raw field bytes are
     /// hashed into the commitment: `1` and `01` are different transitions.
@@ -129,7 +140,7 @@ impl<'a> Expiry<'a> {
 pub struct PrevCmx([u8; 32]);
 
 impl PrevCmx {
-    /// The 64-zero predecessor of a claim (WP §3.1).
+    /// The 64-zero predecessor of a claim (WP §4.1).
     pub const ZERO: Self = PrevCmx([0u8; 32]);
 
     /// Decodes exactly 64 lowercase hex chars.
@@ -260,7 +271,7 @@ pub fn prev_for(tip: Option<&Tip>, action: Action) -> Option<[u8; 32]> {
     }
 }
 
-/// A committed Name Note (WP §3.1): the form that appears on chain.
+/// A committed Name Note (WP §4.1): the form that appears on chain.
 ///
 /// A release has no expiry. A claim has no predecessor. A list or an auction
 /// carries its terms between the expiry and the predecessor. A sale, list,
@@ -357,7 +368,7 @@ pub enum NameNote<'a> {
 }
 
 impl<'a> NameNote<'a> {
-    /// Parses a Name Note from its zero-padded 512-byte memo (WP §3.1).
+    /// Parses a Name Note from its zero-padded 512-byte memo (WP §4.1).
     ///
     /// The returned note borrows from `memo`. This is the only way to
     /// construct a `NameNote` from untrusted bytes.
@@ -463,10 +474,10 @@ impl<'a> NameNote<'a> {
         }
     }
 
-    /// Encodes the canonical zero-padded memo.
+    /// Encodes the canonical zero-padded memo (WP §4.1).
     ///
     /// Returns [`MemoError::TooLong`] if the UA cannot fit, which valid
-    /// protocol transitions never trigger (WP §4, on-chain completeness).
+    /// protocol transitions never trigger (WP §5.6).
     /// Returns the parse error when the fields are not a Name Note.
     pub fn encode(&self) -> Result<Memo, MemoError> {
         let verb = self.action().as_bytes();
@@ -512,7 +523,7 @@ impl<'a> NameNote<'a> {
     ///
     /// [`Self::term_count`] is how many leading entries are live: two for a
     /// list, five for an auction, none otherwise.
-    pub fn terms(&self) -> [&'a [u8]; 5] {
+    fn terms(&self) -> [&'a [u8]; 5] {
         match self {
             NameNote::List { pay_to, price, .. } => {
                 [pay_to.as_bytes(), price.as_bytes(), b"", b"", b""]
@@ -540,7 +551,7 @@ impl<'a> NameNote<'a> {
     }
 
     /// How many [`Self::terms`] entries belong to the record.
-    pub fn term_count(&self) -> usize {
+    fn term_count(&self) -> usize {
         match self {
             NameNote::List { .. } => 2,
             NameNote::Auction { .. } => 5,
@@ -648,8 +659,8 @@ fn valid_auction(pay_to: &str, start_price: &str, min_price: &str, start: &str, 
     valid_pay_to(pay_to) && end > start && start_price > min_price
 }
 
-/// The payment address is non-empty text. The mint checks the transparent
-/// encoding when it writes the note.
+/// The payment address is non-empty text (WP §4.2). Decoding it as a
+/// transparent address is left to the caller.
 fn valid_pay_to(text: &str) -> bool {
     !text.is_empty()
 }
@@ -1007,16 +1018,9 @@ mod tests {
     }
 
     fn rseed_of(note: &NameNote<'_>) -> [u8; 32] {
-        let terms = note.terms();
+        let memo = note.encode().unwrap();
         crate::name_note_rseed(
-            note.action().as_bytes(),
-            note.name().as_str().as_bytes(),
-            note.ua().as_str().as_bytes(),
-            note.expires_at()
-                .unwrap_or(Expiry::NEVER)
-                .field_bytes()
-                .as_bytes(),
-            &terms[..note.term_count()],
+            memo.fields().unwrap(),
             note.prev().unwrap_or(PrevCmx::ZERO).as_bytes(),
         )
     }

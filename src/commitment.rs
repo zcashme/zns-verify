@@ -1,7 +1,7 @@
-//! A bound Name Note's commitment: its rseed from its record
+//! A Name Note's commitment (WP §4.4, §4.5): its rseed from its transition
 //! ([`name_note_rseed`]), ψ and rcm from that rseed as for any Ironwood note
 //! ([`psi_from_rseed`], [`rcm_from_rseed`]), and the Sinsemilla note
-//! commitment over them (WP §3.4).
+//! commitment over them ([`note_commitment_cmx`]).
 
 use blake2b_simd::Params;
 use group::ff::{FromUniformBytes, PrimeField};
@@ -10,7 +10,7 @@ use pasta_curves::pallas;
 /// Number of bits taken from each Pallas base-field input (`rho`, `psi`).
 const L_ORCHARD_BASE: usize = 255;
 
-/// The extracted note commitment (`cmx`) of a Name Note (WP §3.4) -- the
+/// The extracted note commitment (`cmx`) of a Name Note (WP §4.5) -- the
 /// x-coordinate of the Sinsemilla commitment to the note contents.
 /// Verification recomputes `cmx` from the note's fields and compares it to
 /// the value recorded on chain.
@@ -46,7 +46,7 @@ impl Rho {
     }
 }
 
-/// Derives `cmx` from the note components and the ZNS opening (WP §3.4).
+/// Derives `cmx` from the note components, ψ and rcm (WP §4.5).
 ///
 /// Returns `None` when the commitment is the identity point; such a value
 /// cannot equal a real on-chain `cmx`.
@@ -72,50 +72,28 @@ pub fn note_commitment_cmx(
     Option::<pallas::Base>::from(domain.short_commit(bits, &rcm)).map(ExtractedNoteCommitment)
 }
 
-/// The binding domain of a bound Name Note's rseed: its BLAKE2b
-/// personalization (zcashme/zns-mint#480).
+/// The binding domain `D` of a Name Note's rseed: its BLAKE2b
+/// personalization (WP §4.4).
 pub const NAME_NOTE_PERSONALIZATION: &[u8; 16] = b"ZNS___Name_Notes";
 
-/// The record kind of every Name Note.
+/// The record kind `κ` of every Name Note (WP §4.4).
 pub const NAME_NOTE_KIND: u8 = 0x01;
 
-/// Derives a bound Name Note's rseed from its record (bound-notes draft ZIP):
+/// Derives a Name Note's rseed from its transition (WP §4.4):
 /// BLAKE2b-256, personalization [`NAME_NOTE_PERSONALIZATION`], over
 /// `kind ‖ I2LEOSP64(len(fields)) ‖ fields ‖ prev`.
 ///
-/// `fields` is the memo text between `ZNS:` and the predecessor:
-/// `action:name:ua:expires_at`, then `:terms` when `terms` is non-empty.
-/// An empty `terms` is a claim, update, release, sale, or delist. `prev` is
+/// `fields` is `f` of WP §4.3: the memo bytes that follow the leading `ZNS:`
+/// and precede the colon before `prev` ([`crate::Memo::fields`]). `prev` is
 /// the predecessor's cmx, or all zero for a claim.
-pub fn name_note_rseed(
-    action: &[u8],
-    name: &[u8],
-    ua: &[u8],
-    expires_at: &[u8],
-    terms: &[&[u8]],
-    prev: &[u8; 32],
-) -> [u8; 32] {
-    let mut fields_len = action.len() + name.len() + ua.len() + expires_at.len() + 3;
-    for term in terms {
-        fields_len += 1 + term.len();
-    }
+pub fn name_note_rseed(fields: &[u8], prev: &[u8; 32]) -> [u8; 32] {
     let mut h = Params::new()
         .hash_length(32)
         .personal(NAME_NOTE_PERSONALIZATION)
         .to_state();
     h.update(&[NAME_NOTE_KIND]);
-    h.update(&(fields_len as u64).to_le_bytes());
-    h.update(action);
-    h.update(b":");
-    h.update(name);
-    h.update(b":");
-    h.update(ua);
-    h.update(b":");
-    h.update(expires_at);
-    for term in terms {
-        h.update(b":");
-        h.update(term);
-    }
+    h.update(&(fields.len() as u64).to_le_bytes());
+    h.update(fields);
     h.update(prev);
     h.finalize()
         .as_bytes()

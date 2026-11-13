@@ -1,4 +1,4 @@
-//! Name Note **commitment** verification (WP §3.4).
+//! Name Note **commitment** verification (WP §4.5).
 //!
 //! [`verify_bound_name_note`] checks **consistency**: the parsed memo fields,
 //! the note components you supply (`g_d`, `pk_d`, `value`, `rho`), and the
@@ -15,13 +15,13 @@ use crate::commitment::{
     name_note_rseed, note_commitment_cmx, psi_from_rseed, rcm_from_rseed, ExtractedNoteCommitment,
     Rho,
 };
-use crate::memo::{Expiry, NameNote, PrevCmx};
+use crate::memo::{NameNote, PrevCmx};
 
-/// Returns `true` when a bound Name Note's fields reproduce the on-chain
-/// `cmx` (zcashme/zns-mint#480).
+/// Returns `true` when a Name Note's fields reproduce the on-chain `cmx`
+/// (WP §4.5).
 ///
-/// The record gives the rseed ([`name_note_rseed`]); the rseed gives ψ and rcm
-/// as for any Ironwood note. The check is for an Ironwood note (lead byte
+/// The transition gives the rseed ([`name_note_rseed`]); the rseed gives ψ and
+/// rcm as for any Ironwood note. The check is for an Ironwood note (lead byte
 /// `0x03`) only: an Orchard-pool note derives its rcm differently and fails it.
 ///
 /// **Consistent, not authorised.** Anyone can build a zero-value note to the
@@ -35,24 +35,15 @@ pub fn verify_bound_name_note(
     rho: Rho,
     cmx: ExtractedNoteCommitment,
 ) -> bool {
-    let (expires_at, prev) = expiry_and_prev(note);
-    let terms = note.terms();
-    let rseed = name_note_rseed(
-        note.action().as_bytes(),
-        note.name().as_str().as_bytes(),
-        note.ua().as_str().as_bytes(),
-        expires_at.as_bytes(),
-        &terms[..note.term_count()],
-        prev.as_bytes(),
-    );
+    let Ok(memo) = note.encode() else {
+        return false;
+    };
+    let Some(fields) = memo.fields() else {
+        return false;
+    };
+    let prev = note.prev().unwrap_or(PrevCmx::ZERO);
+    let rseed = name_note_rseed(fields, prev.as_bytes());
     let psi = psi_from_rseed(&rseed, rho);
     let rcm = rcm_from_rseed(&rseed, rho, g_d, pk_d, value, psi);
     note_commitment_cmx(g_d, pk_d, value, rho, psi, rcm) == Some(cmx)
-}
-
-fn expiry_and_prev<'a>(note: &NameNote<'a>) -> (&'a str, PrevCmx) {
-    (
-        note.expires_at().unwrap_or(Expiry::NEVER).field_bytes(),
-        note.prev().unwrap_or(PrevCmx::ZERO),
-    )
 }
