@@ -27,15 +27,15 @@ Auditability, determinism, and minimality are the product. "Looks nice in Rust" 
 
 2. **Protocol fidelity over Rust idioms**  
    - Length-prefixed BLAKE2b construction is required for collision resistance across languages. Do not "make it nicer" with serde or higher-level combinators if they change the wire/hash bytes.
-   - The memo grammar is **strict** by design. Exact field counts, lowercase hex only for `prev_rcm`. A lenient parser would let implementations drift - this parser is the single source of truth so that "agreement is by construction rather than by review."
+   - The memo grammar is **strict** by design. Exact field counts, lowercase hex only for the predecessor. A lenient parser would let implementations drift - this parser is the single source of truth so that "agreement is by construction rather than by review."
    - ZNS name rules are exact (1-63 bytes, `a-z 0-9`). Do not relax or add "helpful" normalization.
-   - Cross-language test vectors in `tests/vectors.rs` are sacred. Existing vectors never change. They are the interop contract.
+   - Cross-language test vectors in `tests/bound_vectors.rs` are sacred. Existing vectors never change. They are the interop contract.
 
 3. **Recompute, don't trust (commitment math only)**  
-   `verify_name_note` and `verify_bound_name_note` are the capstone for **consistency**: they re-derive `(ψ, rcm)` from `(action, name, ua, expires_at, prev_rcm)`, directly or through the bound note's rseed, and recompute the Sinsemilla `cmx`. The caller does not have to believe any external party for that step. Do not document or market that `true` as an authorised binding. Authorisation is `authorized_transition`, and it still needs the commitment check.
+   `verify_bound_name_note` is the capstone for **consistency**: it re-derives the rseed from `(action, name, ua, expires_at, terms, prev)`, then `(ψ, rcm)`, and recomputes the Sinsemilla `cmx`. The caller does not have to believe any external party for that step. Do not document or market that `true` as an authorised binding. Authorisation is `authorized_transition`, and it still needs the commitment check.
 
 4. **One copy of the state machine**  
-   `memo::prev_rcm_for` is the chain-shape rule. `authorized_transition` is the spend rule. Each has one implementation that registry minter, resolver, and verifier use identically.
+   `memo::prev_for` is the chain-shape rule. `authorized_transition` is the spend rule. Each has one implementation that registry minter, resolver, and verifier use identically.
 
 5. **Minimal surface, explicit opt-in for weight**  
    The common case (verification, parsing, note commitment derivation) must stay tiny and dependency-light. Anything that brings orchard, std-only crypto, or heavy lifting must live behind a feature flag and be clearly labeled as such.
@@ -70,7 +70,7 @@ When considering a change, ask:
 - Using `sinsemilla` + `pasta_curves` directly instead of `orchard::NoteCommitment` (removes a massive dependency for verifiers).
 - Pinning chacha20 / chacha20poly1305 versions to match `zcash_note_encryption` internals byte-for-byte inside the `decrypt` feature.
 - Keeping the `Action` enum as a simple exhaustive match rather than a fancy newtype or stringly-typed thing.
-- Accepting that `verify_name_note` takes the parsed `NameNote` plus the note components (`g_d`, `pk_d`, `value`, `rho`, `cmx`), because that is the exact set a scanner holds after decrypting a note.
+- Accepting that `verify_bound_name_note` takes the parsed `NameNote` plus the note components (`g_d`, `pk_d`, `value`, `rho`, `cmx`), because that is the exact set a scanner holds after decrypting a note.
 - Writing the obvious loop for hex decoding instead of pulling in another crate.
 
 ## Anti-Patterns to Reject

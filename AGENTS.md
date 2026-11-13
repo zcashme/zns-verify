@@ -8,11 +8,11 @@ Use the content of PRAGMATISM.md (or the principles below) when writing, reviewi
 
 zns-verify is the ZcashName (ZNS) verification kernel -- the minimal primitive the trust model rests on.
 
-A ZcashName binding lives inside a Name Note's commitment. For an rcm/ψ Name Note, (rcm, psi) are a deterministic hash of (action, name, ua, expires_at, prev_rcm); for a bound Name Note, the rseed is a deterministic hash of the same record and (rcm, psi) follow from it as for any Ironwood note. Either way the chain commits to that hash through the note's cmx. This crate recomputes the commitment from the note's fields and compares it to the on-chain cmx. Match: the memo fields are **consistent** with that `cmx` (same hash math any indexer would apply). No match: they are not. You reach that hash conclusion without trusting any registry, resolver, or indexer for the recomputation.
+A ZcashName binding lives inside a Name Note's commitment. A Name Note is a bound note: its rseed is a deterministic hash of the record (action, name, ua, expires_at, terms, prev), and (rcm, psi) follow from that rseed as for any Ironwood note. The chain commits to that hash through the note's cmx. This crate recomputes the commitment from the note's fields and compares it to the on-chain cmx. Match: the memo fields are **consistent** with that `cmx` (same hash math any indexer would apply). No match: they are not. You reach that hash conclusion without trusting any registry, resolver, or indexer for the recomputation.
 
-Match is **not** Mint **authorship**: the Registry key spending the live tip or claim anchor. `verify_name_note` does not check spends. `authorized_transition` does, given the revealed nullifiers and the tip nullifier stored from the previous note. Anyone can create a zero-value note to the registry address whose commitment verifies, so a wallet that treats `verify_name_note == true` alone as an authorised binding can be given a forged one. README **Trust boundary** and `src/verify.rs` state this explicitly.
+Match is **not** Mint **authorship**: the Registry key spending the live tip or claim anchor. `verify_bound_name_note` does not check spends. `authorized_transition` does, given the revealed nullifiers and the tip nullifier stored from the previous note. Anyone can create a zero-value note to the registry address whose commitment verifies, so a wallet that treats `verify_bound_name_note == true` alone as an authorised binding can be given a forged one. README **Trust boundary** and `src/verify.rs` state this explicitly.
 
-Resolution of **names to UAs** calls `authorized_transition` with those nullifiers. `verify_name_note` alone is not a resolver.
+Resolution of **names to UAs** calls `authorized_transition` with those nullifiers. `verify_bound_name_note` alone is not a resolver.
 
 ### What the crate provides
 
@@ -21,15 +21,15 @@ transitions. Request memos (user -> Mint treasury intake) are a separate lane;
 their implementation lives in the mint, and they never enter the verification
 path.
 
-- `zns_psi_rcm(action, name, ua, expires_at, prev_rcm) -> (psi, rcm)` -- re-derive the deterministic commitment randomness.
+- `name_note_rseed(action, name, ua, expires_at, terms, prev) -> rseed` -- re-derive a Name Note's rseed from its record.
+- `psi_from_rseed(...)`, `rcm_from_rseed(...)` -- ψ and rcm from that rseed, by the Ironwood derivations.
 - `note_commitment_cmx(...)` -- recompute the Sinsemilla note commitment.
-- `name_note_rseed(...)`, `psi_from_rseed(...)`, `rcm_from_rseed(...)` -- a bound Name Note's rseed from its record, and ψ and rcm from that rseed.
-- `verify_name_note(...)` / `verify_bound_name_note(...)` -- recompute and compare against cmx; `true` means consistent, not authorised.
-- `authorized_transition(...)` -- the Registry spend rule. True only together with `verify_name_note`.
-- `NameNote::parse(&Memo)` / `note.encode()` -- the canonical Name Note memo grammar as a three-variant enum with validated field types (`Name`, `Expiry`, `PrevRcm`). One strict parser shared by registry, resolver, and slash contract. Agreement is by construction.
-- `memo::prev_rcm_for` -- the per-name chain-shape rule: which prev_rcm an action must extend, given the name's tip. `authorized_transition` applies it.
+- `verify_bound_name_note(...)` -- recompute and compare against cmx; `true` means consistent, not authorised.
+- `authorized_transition(...)` -- the Registry spend rule. True only together with `verify_bound_name_note`.
+- `NameNote::parse(&Memo)` / `note.encode()` -- the canonical Name Note memo grammar as a seven-variant enum with validated field types (`Name`, `Expiry`, `PrevCmx`). One strict parser shared by registry, resolver, and slash contract. Agreement is by construction.
+- `memo::prev_for` -- the per-name chain-shape rule: which predecessor cmx an action must extend, given the name's tip. `authorized_transition` applies it.
 
-This kernel is the protocol's shared core -- the crypto plus the chain-shape and spend rules every party must compute identically. Its dependencies let it run in a wallet, SDK, resolver, enclave, or embedded target. Turning names into payment addresses calls `authorized_transition` with the stored tip nullifier; `verify_name_note` alone does not.
+This kernel is the protocol's shared core -- the crypto plus the chain-shape and spend rules every party must compute identically. Its dependencies let it run in a wallet, SDK, resolver, enclave, or embedded target. Turning names into payment addresses calls `authorized_transition` with the stored tip nullifier; `verify_bound_name_note` alone does not.
 
 ## Core Mandate
 
@@ -53,15 +53,15 @@ Auditability, determinism, and minimality are the product. "Looks nice in Rust" 
 
 2. **Protocol fidelity over Rust idioms**  
    - Length-prefixed BLAKE2b construction is required for collision resistance across languages. Do not "make it nicer" with serde or higher-level combinators if they change the wire or hash bytes.
-   - The memo grammar is **strict** by design. Exact field counts (six fields for Name Notes), positional fields, RELEASE retains the released UA and must encode `none` for `expires_at`, lowercase hex only for `prev_rcm`. A lenient parser would let implementations drift. This parser is the single source of truth so that "agreement is by construction rather than by review."
+   - The memo grammar is **strict** by design. Exact field counts (six fields for a Name Note, plus two terms for a list and five for an auction), positional fields, RELEASE retains the released UA and must encode `none` for `expires_at`, lowercase hex only for the predecessor. A lenient parser would let implementations drift. This parser is the single source of truth so that "agreement is by construction rather than by review."
    - ZNS name rules are exact (1-63 bytes, `a-z 0-9`). Do not relax or add "helpful" normalization.
-   - Cross-language test vectors in `tests/vectors.rs` are sacred. Existing vectors never change. They are the interop contract.
+   - Cross-language test vectors in `tests/bound_vectors.rs` are sacred. Existing vectors never change. They are the interop contract. The rcm/ψ vectors left with that format; zns-verify 0.2.1 keeps them.
 
 3. **Recompute, don't trust (commitment math only)**  
-   `verify_name_note` is the capstone for **consistency**: it re-derives `(psi, rcm)` from `(action, name, ua, expires_at, prev_rcm)` and recomputes the Sinsemilla `cmx`. The caller does not have to believe any external party for that step. It must not be read as proof the Mint authorised the transition. Authorisation is `authorized_transition`, and it still needs the commitment check.
+   `verify_bound_name_note` is the capstone for **consistency**: it re-derives the rseed from `(action, name, ua, expires_at, terms, prev)`, then `(psi, rcm)`, and recomputes the Sinsemilla `cmx`. The caller does not have to believe any external party for that step. It must not be read as proof the Mint authorised the transition. Authorisation is `authorized_transition`, and it still needs the commitment check.
 
 4. **One copy of the state machine**  
-   `memo::prev_rcm_for` is the chain-shape rule. `authorized_transition` is the spend rule. Each has one implementation that registry minter, resolver, and verifier use identically.
+   `memo::prev_for` is the chain-shape rule. `authorized_transition` is the spend rule. Each has one implementation that registry minter, resolver, and verifier use identically.
 
 5. **Minimal surface, explicit opt-in for weight**  
    The common case (verification, parsing, note commitment derivation) must stay tiny and dependency-light. Anything that brings orchard, std-only crypto, or heavy lifting must live behind a feature flag and be clearly labeled as such.
@@ -96,9 +96,9 @@ When considering a change, ask:
 ## What "Pragmatic" Means Here
 
 - Using `sinsemilla` + `pasta_curves` directly instead of `orchard::NoteCommitment` (removes a massive dependency for verifiers).
-- Wrapping upstream `IronwoodDomain` by delegation inside the `decrypt` feature, overriding only `cmstar`, instead of carrying a second copy of note encryption.
+- Calling upstream `IronwoodDomain` as it is inside the `decrypt` feature, instead of carrying a second copy of note encryption.
 - Keeping the `Action` enum as a simple exhaustive match rather than a fancy newtype or stringly-typed thing.
-- Accepting that `verify_name_note` takes the parsed `NameNote` plus the note components (`g_d`, `pk_d`, `value`, `rho`, `cmx`), because that is the exact set a scanner holds after decrypting a note.
+- Accepting that `verify_bound_name_note` takes the parsed `NameNote` plus the note components (`g_d`, `pk_d`, `value`, `rho`, `cmx`), because that is the exact set a scanner holds after decrypting a note.
 - Writing the obvious loop for hex decoding instead of pulling in another crate.
 
 ## Anti-Patterns to Reject
@@ -135,7 +135,7 @@ Everything else is secondary.
 - `README.md` -- high-level description and usage examples.
 - `PRAGMATISM.md` -- the full original pragmatism prompt (source of many rules above).
 - `src/lib.rs`, `src/memo.rs`, `src/commitment.rs`, `src/verify.rs` -- the implementation.
-- `tests/vectors.rs` -- cross-language interop contract and pins.
+- `tests/bound_vectors.rs` -- cross-language interop contract and pins.
 
 When editing, the source code is authoritative. Describe behavior based on what the code actually does.
 

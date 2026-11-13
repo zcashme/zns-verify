@@ -123,31 +123,32 @@ impl<'a> Expiry<'a> {
     }
 }
 
-/// The disclosed predecessor witness of a transition.
+/// A transition's predecessor: the cmx of the note it spends (bound-notes
+/// ZIP, Lineage).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PrevRcm([u8; 32]);
+pub struct PrevCmx([u8; 32]);
 
-impl PrevRcm {
+impl PrevCmx {
     /// The 64-zero predecessor of a claim (WP §3.1).
-    pub const ZERO: Self = PrevRcm(ZERO_PREV_RCM);
+    pub const ZERO: Self = PrevCmx([0u8; 32]);
 
     /// Decodes exactly 64 lowercase hex chars.
     pub fn from_hex(s: &str) -> Result<Self, MemoError> {
         let bytes = s.as_bytes();
         if bytes.len() != 64 {
-            return Err(MemoError::InvalidPrevRcm);
+            return Err(MemoError::InvalidPrevCmx);
         }
         let nibble = |b: u8| match b {
             b'0'..=b'9' => Ok(b - b'0'),
             b'a'..=b'f' => Ok(b - b'a' + 10),
-            _ => Err(MemoError::InvalidPrevRcm),
+            _ => Err(MemoError::InvalidPrevCmx),
         };
         let mut out = [0u8; 32];
         let (pairs, _) = bytes.as_chunks::<2>();
         for (i, pair) in pairs.iter().enumerate() {
             out[i] = (nibble(pair[0])? << 4) | nibble(pair[1])?;
         }
-        Ok(PrevRcm(out))
+        Ok(PrevCmx(out))
     }
 
     /// The 64-char lowercase hex encoding.
@@ -227,29 +228,25 @@ impl Action {
     }
 }
 
-/// The genesis `prev_rcm` for a claim.
-pub const ZERO_PREV_RCM: [u8; 32] = [0u8; 32];
-
 /// The live tip of a name's chain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Tip {
     /// The latest action.
     pub action: Action,
-    /// The value the next action must extend: the tip's `rcm` for an rcm/ψ
-    /// Name Note, its `cmx` for a bound Name Note.
-    pub rcm: [u8; 32],
+    /// The tip's cmx: the predecessor the next action must extend.
+    pub cmx: [u8; 32],
 }
 
-/// The `prev_rcm` an `action` must extend given the name's current tip.
+/// The predecessor an `action` must extend given the name's current tip.
 ///
-/// Chain shape only. For an update or a release,
+/// Chain shape only. For every action but a claim,
 /// [`crate::authorized_transition`] also requires the transaction to reveal
 /// that tip's nullifier. A claim spends a live claim anchor instead, never the
 /// tip.
-pub fn prev_rcm_for(tip: Option<&Tip>, action: Action) -> Option<[u8; 32]> {
+pub fn prev_for(tip: Option<&Tip>, action: Action) -> Option<[u8; 32]> {
     match (action, tip) {
-        (Action::Claim, None) => Some(ZERO_PREV_RCM),
-        (Action::Claim, Some(t)) if t.action == Action::Release => Some(ZERO_PREV_RCM),
+        (Action::Claim, None) => Some(*PrevCmx::ZERO.as_bytes()),
+        (Action::Claim, Some(t)) if t.action == Action::Release => Some(*PrevCmx::ZERO.as_bytes()),
         (
             Action::Update
             | Action::Release
@@ -258,7 +255,7 @@ pub fn prev_rcm_for(tip: Option<&Tip>, action: Action) -> Option<[u8; 32]> {
             | Action::Auction
             | Action::Delist,
             Some(t),
-        ) if t.action != Action::Release => Some(t.rcm),
+        ) if t.action != Action::Release => Some(t.cmx),
         _ => None,
     }
 }
@@ -287,8 +284,8 @@ pub enum NameNote<'a> {
         ua: Ua<'a>,
         /// The carried-forward or extended expiration.
         expires_at: Expiry<'a>,
-        /// The disclosed predecessor witness.
-        prev_rcm: PrevRcm,
+        /// The predecessor's cmx.
+        prev: PrevCmx,
     },
     /// Terminate the registration, retaining the released UA.
     Release {
@@ -296,8 +293,8 @@ pub enum NameNote<'a> {
         name: Name<'a>,
         /// The UA being released.
         ua: Ua<'a>,
-        /// The disclosed predecessor witness.
-        prev_rcm: PrevRcm,
+        /// The predecessor's cmx.
+        prev: PrevCmx,
     },
     /// Hand `name` to `ua`. The name stays live.
     Sale {
@@ -307,8 +304,8 @@ pub enum NameNote<'a> {
         ua: Ua<'a>,
         /// The carried-forward expiration.
         expires_at: Expiry<'a>,
-        /// The disclosed predecessor witness.
-        prev_rcm: PrevRcm,
+        /// The predecessor's cmx.
+        prev: PrevCmx,
     },
     /// Offer `name` at one price. The owner and expiry carry forward.
     List {
@@ -322,8 +319,8 @@ pub enum NameNote<'a> {
         pay_to: &'a str,
         /// The price in ZEC, as written.
         price: &'a str,
-        /// The disclosed predecessor witness.
-        prev_rcm: PrevRcm,
+        /// The predecessor's cmx.
+        prev: PrevCmx,
     },
     /// Offer `name` on a falling price. The owner and expiry carry forward.
     Auction {
@@ -343,8 +340,8 @@ pub enum NameNote<'a> {
         start: &'a str,
         /// The closing block height, as written.
         end: &'a str,
-        /// The disclosed predecessor witness.
-        prev_rcm: PrevRcm,
+        /// The predecessor's cmx.
+        prev: PrevCmx,
     },
     /// Take `name` off the market. The owner and expiry carry forward.
     Delist {
@@ -354,8 +351,8 @@ pub enum NameNote<'a> {
         ua: Ua<'a>,
         /// The carried-forward expiration.
         expires_at: Expiry<'a>,
-        /// The disclosed predecessor witness.
-        prev_rcm: PrevRcm,
+        /// The predecessor's cmx.
+        prev: PrevCmx,
     },
 }
 
@@ -390,7 +387,7 @@ impl<'a> NameNote<'a> {
                     expires_at: Expiry::from_field(expires_field)?,
                     pay_to,
                     price,
-                    prev_rcm: prev,
+                    prev,
                 })
             }
             Some(Action::Auction) => {
@@ -412,7 +409,7 @@ impl<'a> NameNote<'a> {
                     min_price,
                     start,
                     end,
-                    prev_rcm: prev,
+                    prev,
                 })
             }
             Some(Action::Claim) => {
@@ -420,9 +417,9 @@ impl<'a> NameNote<'a> {
                 if fields.next().is_some() {
                     return Err(MemoError::FieldCount);
                 }
-                let prev = PrevRcm::from_hex(prev_hex)?;
+                let prev = PrevCmx::from_hex(prev_hex)?;
                 if !prev.is_zero() {
-                    return Err(MemoError::InvalidPrevRcm);
+                    return Err(MemoError::InvalidPrevCmx);
                 }
                 Ok(NameNote::Claim {
                     name,
@@ -434,30 +431,26 @@ impl<'a> NameNote<'a> {
                 name,
                 ua,
                 expires_at: Expiry::from_field(expires_field)?,
-                prev_rcm: predecessor(&mut fields)?,
+                prev: predecessor(&mut fields)?,
             }),
             Some(Action::Sale) => Ok(NameNote::Sale {
                 name,
                 ua,
                 expires_at: Expiry::from_field(expires_field)?,
-                prev_rcm: predecessor(&mut fields)?,
+                prev: predecessor(&mut fields)?,
             }),
             Some(Action::Delist) => Ok(NameNote::Delist {
                 name,
                 ua,
                 expires_at: Expiry::from_field(expires_field)?,
-                prev_rcm: predecessor(&mut fields)?,
+                prev: predecessor(&mut fields)?,
             }),
             Some(Action::Release) => {
                 let prev = predecessor(&mut fields)?;
                 if expires_field != "none" {
                     return Err(MemoError::InvalidExpiry);
                 }
-                Ok(NameNote::Release {
-                    name,
-                    ua,
-                    prev_rcm: prev,
-                })
+                Ok(NameNote::Release { name, ua, prev })
             }
             None => {
                 // A short memo is a field-count error even when the verb is unknown.
@@ -484,7 +477,7 @@ impl<'a> NameNote<'a> {
             .unwrap_or(Expiry::NEVER)
             .field_bytes()
             .as_bytes();
-        let prev_hex = self.prev_rcm().unwrap_or(PrevRcm::ZERO).to_hex();
+        let prev_hex = self.prev().unwrap_or(PrevCmx::ZERO).to_hex();
         let terms = self.terms();
         let mut memo = [0u8; MEMO_SIZE];
         memo[..3].copy_from_slice(b"ZNS");
@@ -598,29 +591,29 @@ impl<'a> NameNote<'a> {
         }
     }
 
-    /// The disclosed predecessor witness; absent on a claim.
-    pub fn prev_rcm(&self) -> Option<PrevRcm> {
+    /// The predecessor's cmx; absent on a claim.
+    pub fn prev(&self) -> Option<PrevCmx> {
         match self {
             NameNote::Claim { .. } => None,
-            NameNote::Update { prev_rcm, .. }
-            | NameNote::Release { prev_rcm, .. }
-            | NameNote::Sale { prev_rcm, .. }
-            | NameNote::List { prev_rcm, .. }
-            | NameNote::Auction { prev_rcm, .. }
-            | NameNote::Delist { prev_rcm, .. } => Some(*prev_rcm),
+            NameNote::Update { prev, .. }
+            | NameNote::Release { prev, .. }
+            | NameNote::Sale { prev, .. }
+            | NameNote::List { prev, .. }
+            | NameNote::Auction { prev, .. }
+            | NameNote::Delist { prev, .. } => Some(*prev),
         }
     }
 }
 
 /// The next field is a nonzero predecessor, and nothing follows it.
-fn predecessor<'a>(fields: &mut impl Iterator<Item = &'a str>) -> Result<PrevRcm, MemoError> {
+fn predecessor<'a>(fields: &mut impl Iterator<Item = &'a str>) -> Result<PrevCmx, MemoError> {
     let prev_hex = fields.next().ok_or(MemoError::FieldCount)?;
     if fields.next().is_some() {
         return Err(MemoError::FieldCount);
     }
-    let prev = PrevRcm::from_hex(prev_hex)?;
+    let prev = PrevCmx::from_hex(prev_hex)?;
     if prev.is_zero() {
-        return Err(MemoError::InvalidPrevRcm);
+        return Err(MemoError::InvalidPrevCmx);
     }
     Ok(prev)
 }
@@ -724,8 +717,8 @@ pub enum MemoError {
     EmptyUa,
     /// The `expires_at` field is non-canonical, or present on a release.
     InvalidExpiry,
-    /// `prev_rcm` is not 64 lowercase hex chars, or inconsistent with the action.
-    InvalidPrevRcm,
+    /// The predecessor is not 64 lowercase hex chars, or inconsistent with the action.
+    InvalidPrevCmx,
     /// A list or auction term is empty, non-canonical, or out of order.
     InvalidTerms,
     /// The encoded memo would exceed [`MEMO_SIZE`].
@@ -768,12 +761,12 @@ mod tests {
     }
 
     #[test]
-    fn prev_rcm_hex_codec() {
-        let prev = PrevRcm::from_hex(HEX).unwrap();
+    fn prev_cmx_hex_codec() {
+        let prev = PrevCmx::from_hex(HEX).unwrap();
         assert_eq!(prev.to_hex(), HEX.as_bytes());
-        assert!(PrevRcm::from_hex(&HEX.to_uppercase()).is_err());
-        assert!(PrevRcm::from_hex("abcd").is_err());
-        assert!(PrevRcm::ZERO.is_zero());
+        assert!(PrevCmx::from_hex(&HEX.to_uppercase()).is_err());
+        assert!(PrevCmx::from_hex("abcd").is_err());
+        assert!(PrevCmx::ZERO.is_zero());
         assert!(!prev.is_zero());
     }
 
@@ -794,8 +787,7 @@ mod tests {
         assert_eq!(Action::Auction.as_str(), "auction");
         assert_eq!(Action::Delist.as_str(), "delist");
         // as_bytes must stay the byte view of as_str: the spelling is
-        // load-bearing, it is hashed into zns_psi_rcm (WP §3.3) and
-        // name_note_rseed.
+        // load-bearing, it is hashed into name_note_rseed.
         for action in [
             Action::Claim,
             Action::Update,
@@ -921,10 +913,10 @@ mod tests {
         let m = memo(&format!("ZNS:claim:alice::none:{}", HEX));
         assert_eq!(NameNote::parse(&m), Err(MemoError::EmptyUa));
         let m = memo(&format!("ZNS:claim:alice:{}:none:{}", UA, HEX));
-        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidPrevRcm));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidPrevCmx));
         let zeros = "0".repeat(64);
         let m = memo(&format!("ZNS:update:alice:{}:none:{}", UA, zeros));
-        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidPrevRcm));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidPrevCmx));
         let m = memo(&format!("ZNS:release:alice:{}:1000:{}", UA, HEX));
         assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidExpiry));
         let m = memo(&format!("ZNS:claim:Alice:{}:none:{}", UA, ZERO_HEX));
@@ -970,9 +962,9 @@ mod tests {
         ));
         assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidTerms));
         let m = memo(&format!("ZNS:sale:alice:{UA}:none:{ZERO_HEX}"));
-        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidPrevRcm));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidPrevCmx));
         let m = memo(&format!("ZNS:delist:alice:{UA}:none:{ZERO_HEX}"));
-        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidPrevRcm));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidPrevCmx));
     }
 
     #[test]
@@ -990,14 +982,14 @@ mod tests {
     fn encode_refuses_terms_parse_rejects() {
         let name = Name::parse("alice").unwrap();
         let ua = Ua::parse(UA).unwrap();
-        let prev_rcm = PrevRcm::from_hex(HEX).unwrap();
+        let prev = PrevCmx::from_hex(HEX).unwrap();
         let list = NameNote::List {
             name,
             ua,
             expires_at: Expiry::NEVER,
             pay_to: "t1abc",
             price: "-1",
-            prev_rcm,
+            prev,
         };
         assert_eq!(list.encode(), Err(MemoError::InvalidTerms));
         let auction = NameNote::Auction {
@@ -1009,7 +1001,7 @@ mod tests {
             min_price: "9",
             start: "3000000",
             end: "3001000",
-            prev_rcm,
+            prev,
         };
         assert_eq!(auction.encode(), Err(MemoError::InvalidTerms));
     }
@@ -1025,132 +1017,132 @@ mod tests {
                 .field_bytes()
                 .as_bytes(),
             &terms[..note.term_count()],
-            note.prev_rcm().unwrap_or(PrevRcm::ZERO).as_bytes(),
+            note.prev().unwrap_or(PrevCmx::ZERO).as_bytes(),
         )
     }
 
     #[test]
     fn chain_transitions() {
-        assert_eq!(prev_rcm_for(None, Action::Claim), Some(ZERO_PREV_RCM));
+        assert_eq!(prev_for(None, Action::Claim), Some([0u8; 32]));
         assert_eq!(
-            prev_rcm_for(
+            prev_for(
                 Some(&Tip {
                     action: Action::Release,
-                    rcm: [9; 32]
+                    cmx: [9; 32]
                 }),
                 Action::Claim
             ),
-            Some(ZERO_PREV_RCM)
+            Some([0u8; 32])
         );
         assert_eq!(
-            prev_rcm_for(
+            prev_for(
                 Some(&Tip {
                     action: Action::Claim,
-                    rcm: [1; 32]
+                    cmx: [1; 32]
                 }),
                 Action::Claim
             ),
             None
         );
         assert_eq!(
-            prev_rcm_for(
+            prev_for(
                 Some(&Tip {
                     action: Action::Claim,
-                    rcm: [7; 32]
+                    cmx: [7; 32]
                 }),
                 Action::Update
             ),
             Some([7; 32])
         );
         assert_eq!(
-            prev_rcm_for(
+            prev_for(
                 Some(&Tip {
                     action: Action::Claim,
-                    rcm: [7; 32]
+                    cmx: [7; 32]
                 }),
                 Action::Release
             ),
             Some([7; 32])
         );
-        assert_eq!(prev_rcm_for(None, Action::Update), None);
-        assert_eq!(prev_rcm_for(None, Action::Release), None);
-        assert_eq!(prev_rcm_for(None, Action::List), None);
-        assert_eq!(prev_rcm_for(None, Action::Sale), None);
+        assert_eq!(prev_for(None, Action::Update), None);
+        assert_eq!(prev_for(None, Action::Release), None);
+        assert_eq!(prev_for(None, Action::List), None);
+        assert_eq!(prev_for(None, Action::Sale), None);
         assert_eq!(
-            prev_rcm_for(
+            prev_for(
                 Some(&Tip {
                     action: Action::Update,
-                    rcm: [0xab; 32]
+                    cmx: [0xab; 32]
                 }),
                 Action::List
             ),
             Some([0xab; 32])
         );
         assert_eq!(
-            prev_rcm_for(
+            prev_for(
                 Some(&Tip {
                     action: Action::List,
-                    rcm: [0xcd; 32]
+                    cmx: [0xcd; 32]
                 }),
                 Action::Sale
             ),
             Some([0xcd; 32])
         );
         assert_eq!(
-            prev_rcm_for(
+            prev_for(
                 Some(&Tip {
                     action: Action::Release,
-                    rcm: [0xcd; 32]
+                    cmx: [0xcd; 32]
                 }),
                 Action::Delist
             ),
             None
         );
         assert_eq!(
-            prev_rcm_for(
+            prev_for(
                 Some(&Tip {
                     action: Action::Release,
-                    rcm: [7; 32]
+                    cmx: [7; 32]
                 }),
                 Action::Update
             ),
             None
         );
         assert_eq!(
-            prev_rcm_for(
+            prev_for(
                 Some(&Tip {
                     action: Action::Release,
-                    rcm: [7; 32]
+                    cmx: [7; 32]
                 }),
                 Action::Release
             ),
             None
         );
         assert_eq!(
-            prev_rcm_for(
+            prev_for(
                 Some(&Tip {
                     action: Action::Update,
-                    rcm: [0xab; 32]
+                    cmx: [0xab; 32]
                 }),
                 Action::Update
             ),
             Some([0xab; 32])
         );
         assert_eq!(
-            prev_rcm_for(
+            prev_for(
                 Some(&Tip {
                     action: Action::Update,
-                    rcm: [0xab; 32]
+                    cmx: [0xab; 32]
                 }),
                 Action::Release
             ),
             Some([0xab; 32])
         );
         assert_eq!(
-            prev_rcm_for(
+            prev_for(
                 Some(&Tip {
                     action: Action::Update,
-                    rcm: [0xab; 32]
+                    cmx: [0xab; 32]
                 }),
                 Action::Claim
             ),

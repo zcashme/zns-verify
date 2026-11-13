@@ -1,12 +1,10 @@
 //! Registry spend lineage for one Name Note.
 //!
 //! [`authorized_transition`] is true when this transaction spends the
-//! predecessor the action requires and the note's `prev_rcm` extends that
-//! tip. The commitment check ([`crate::verify_name_note`],
-//! [`crate::verify_bound_name_note`]) is separate: a memo can reproduce `cmx`
-//! without the Registry key having spent anything.
+//! predecessor the action requires and the note's `prev` extends that tip. The commitment check ([`crate::verify_bound_name_note`]) is separate:
+//! a memo can reproduce `cmx` without the Registry key having spent anything.
 
-use crate::memo::{prev_rcm_for, Action, NameNote, PrevRcm, Tip};
+use crate::memo::{prev_for, Action, NameNote, PrevCmx, Tip};
 
 /// The facts of one transaction, as the caller observed them.
 ///
@@ -39,11 +37,11 @@ pub struct Transition<'a, 'n> {
 /// An update, release, sale, list, auction, or delist must reveal that
 /// name's tip nullifier, no other live name, and no live anchor. A claim
 /// must reveal exactly one live anchor, no live name, and carry the
-/// successor flag. In every case `prev_rcm` must be what [`prev_rcm_for`]
-/// requires, and the transaction must contain one Name Note.
+/// successor flag. In every case `prev` must be what [`prev_for`] requires,
+/// and the transaction must contain one Name Note.
 ///
-/// A match here does not inspect `cmx`. Call [`crate::verify_name_note`] or
-/// [`crate::verify_bound_name_note`] too.
+/// A match here does not inspect `cmx`. Call [`crate::verify_bound_name_note`]
+/// too.
 #[must_use]
 pub fn authorized_transition(transition: &Transition<'_, '_>) -> bool {
     if !transition.single_name_note || !chain_ok(transition.note, transition.tip) {
@@ -71,12 +69,12 @@ pub fn authorized_transition(transition: &Transition<'_, '_>) -> bool {
     }
 }
 
-/// `prev_rcm` is the one [`prev_rcm_for`] names for this tip and action.
+/// `prev` is the one [`prev_for`] names for this tip and action.
 fn chain_ok(note: &NameNote<'_>, tip: Option<&Tip>) -> bool {
-    let Some(expected) = prev_rcm_for(tip, note.action()) else {
+    let Some(expected) = prev_for(tip, note.action()) else {
         return false;
     };
-    let disclosed = note.prev_rcm().unwrap_or(PrevRcm::ZERO);
+    let disclosed = note.prev().unwrap_or(PrevCmx::ZERO);
     disclosed.as_bytes() == &expected
 }
 
@@ -104,8 +102,10 @@ fn count_in(revealed: &[[u8; 32]], set: &[[u8; 32]]) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commitment::{note_commitment_cmx, zns_psi_rcm, Rho};
-    use crate::{verify_name_note, Action, Memo, NameNote, PrimeField, Tip};
+    use crate::commitment::{
+        name_note_rseed, note_commitment_cmx, psi_from_rseed, rcm_from_rseed, Rho,
+    };
+    use crate::{verify_bound_name_note, Action, Memo, NameNote, Tip};
 
     const G_D: [u8; 32] = [0x44; 32];
     const PK_D: [u8; 32] = [0x55; 32];
@@ -127,16 +127,13 @@ mod tests {
         NameNote::parse(memo).unwrap()
     }
 
-    /// `rcm` of a claim for `UA`: the public tip an update can copy.
-    fn claim_rcm() -> [u8; 32] {
-        let (_, rcm) = zns_psi_rcm(b"claim", b"alice", UA.as_bytes(), b"none", &[0u8; 32]);
-        rcm.to_repr()
-    }
+    /// The cmx of a claim for `UA`: the public tip an update can copy.
+    const CLAIM_CMX: [u8; 32] = [0x77; 32];
 
-    fn tip_of(rcm: [u8; 32]) -> Tip {
+    fn tip_of(cmx: [u8; 32]) -> Tip {
         Tip {
             action: Action::Claim,
-            rcm,
+            cmx,
         }
     }
 
@@ -162,13 +159,22 @@ mod tests {
 
     #[test]
     fn a_consistent_forgery_fails_without_the_tip_spend() {
-        let prev = claim_rcm();
+        let prev = CLAIM_CMX;
         let prev_hex = hex::encode(prev);
         let forged_memo = memo(&format!("ZNS:update:alice:{ATTACKER}:none:{prev_hex}"));
         let forged = parse(&forged_memo);
-        let (psi, rcm) = zns_psi_rcm(b"update", b"alice", ATTACKER.as_bytes(), b"none", &prev);
+        let rseed = name_note_rseed(
+            b"update",
+            b"alice",
+            ATTACKER.as_bytes(),
+            b"none",
+            &[],
+            &prev,
+        );
+        let psi = psi_from_rseed(&rseed, rho());
+        let rcm = rcm_from_rseed(&rseed, rho(), G_D, PK_D, 0, psi);
         let cmx = note_commitment_cmx(G_D, PK_D, 0, rho(), psi, rcm).unwrap();
-        assert!(verify_name_note(&forged, G_D, PK_D, 0, rho(), cmx));
+        assert!(verify_bound_name_note(&forged, G_D, PK_D, 0, rho(), cmx));
 
         let tip = tip_of(prev);
         assert!(!authorized_transition(&update_transition(
@@ -191,7 +197,7 @@ mod tests {
 
     #[test]
     fn a_list_spends_the_live_tip() {
-        let prev = claim_rcm();
+        let prev = CLAIM_CMX;
         let prev_hex = hex::encode(prev);
         let listed_memo = memo(&format!("ZNS:list:alice:{UA}:none:t1abc:5:{prev_hex}"));
         let listed = parse(&listed_memo);
@@ -216,7 +222,7 @@ mod tests {
 
     #[test]
     fn an_update_that_spends_more_than_its_tip_is_refused() {
-        let prev = claim_rcm();
+        let prev = CLAIM_CMX;
         let owned = memo(&format!("ZNS:update:alice:{UA}:none:{}", hex::encode(prev)));
         let note = parse(&owned);
         let tip = tip_of(prev);
@@ -248,8 +254,8 @@ mod tests {
     }
 
     #[test]
-    fn a_wrong_prev_rcm_is_refused_even_when_the_tip_is_spent() {
-        let prev = claim_rcm();
+    fn a_wrong_prev_is_refused_even_when_the_tip_is_spent() {
+        let prev = CLAIM_CMX;
         let other = [0xab; 32];
         let owned = memo(&format!(
             "ZNS:update:alice:{UA}:none:{}",
@@ -295,7 +301,7 @@ mod tests {
 
     #[test]
     fn a_release_spends_the_same_tip_as_an_update() {
-        let prev = claim_rcm();
+        let prev = CLAIM_CMX;
         let owned = memo(&format!(
             "ZNS:release:alice:{UA}:none:{}",
             hex::encode(prev)

@@ -12,14 +12,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sale, list, auction, and delist Name Notes. A list carries `t1:price`
   and an auction `t1:start:min:start-block:end-block` between the expiry
   and the predecessor. Each spends the live tip. The name stays live.
+- `tests/bound_vectors.rs`: rseed and cmx vectors for a list, an auction, a
+  sale and a delist. Their rseeds are the ones zns-mint derives for the same
+  records.
 
 ### Changed
 
 - **Breaking:** `name_note_rseed` takes the listing terms. Empty terms
   keep the claim, update, and release rseed.
-- `verify_name_note` has no opening for a list or an auction.
-  `encode` returns a memo only when `parse` accepts it.
+- **Breaking:** the predecessor is named after the cmx it holds. `PrevRcm`
+  is `PrevCmx`, `NameNote::prev_rcm` is `prev`, `prev_rcm_for` is `prev_for`,
+  `Tip::rcm` is `Tip::cmx`, and `MemoError::InvalidPrevRcm` is
+  `InvalidPrevCmx`.
+- `decrypt` calls upstream `IronwoodDomain`. A note decrypts only under the
+  cmx its rseed gives, as every bound Name Note is published.
+- `encode` returns a memo only when `parse` accepts it.
 - A price with a trailing dot is refused. `5` and `5.0` stay.
+
+### Removed
+
+- **Breaking:** the rcm/ψ Name Note format: `zns_psi_rcm`, `ZNS_DOMAIN_TAG`,
+  `verify_name_note`, `verify_name_note_with_witness`, `ZERO_PREV_RCM`,
+  `decrypt::ZnsIronwoodDomain`, `decrypt::CandidateNote`, and
+  `tests/vectors.rs`. Every Name Note the mint writes is bound. 0.2.1 reads
+  rcm/ψ notes.
 
 ## [0.2.1] - 2026-11-12
 
