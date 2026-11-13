@@ -82,11 +82,13 @@ pub fn verify_bound_name_note(
     cmx: ExtractedNoteCommitment,
 ) -> bool {
     let (expires_at, prev) = expiry_and_prev(note);
+    let terms = note.terms();
     let rseed = name_note_rseed(
         note.action().as_bytes(),
         note.name().as_str().as_bytes(),
         note.ua().as_str().as_bytes(),
         expires_at.as_bytes(),
+        &terms[..note.term_count()],
         prev.as_bytes(),
     );
     let psi = psi_from_rseed(&rseed, rho);

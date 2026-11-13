@@ -141,16 +141,22 @@ pub const NAME_NOTE_KIND: u8 = 0x01;
 /// BLAKE2b-256, personalization [`NAME_NOTE_PERSONALIZATION`], over
 /// `kind ‖ I2LEOSP64(len(fields)) ‖ fields ‖ prev`.
 ///
-/// `fields` is `action:name:ua:expires_at`, the memo text between `ZNS:` and
-/// the predecessor. `prev` is the predecessor's cmx, or all zero for a claim.
+/// `fields` is the memo text between `ZNS:` and the predecessor:
+/// `action:name:ua:expires_at`, then `:terms` when `terms` is non-empty.
+/// An empty `terms` is a claim, update, release, sale, or delist. `prev` is
+/// the predecessor's cmx, or all zero for a claim.
 pub fn name_note_rseed(
     action: &[u8],
     name: &[u8],
     ua: &[u8],
     expires_at: &[u8],
+    terms: &[&[u8]],
     prev: &[u8; 32],
 ) -> [u8; 32] {
-    let fields_len = action.len() + name.len() + ua.len() + expires_at.len() + 3;
+    let mut fields_len = action.len() + name.len() + ua.len() + expires_at.len() + 3;
+    for term in terms {
+        fields_len += 1 + term.len();
+    }
     let mut h = Params::new()
         .hash_length(32)
         .personal(NAME_NOTE_PERSONALIZATION)
@@ -164,6 +170,10 @@ pub fn name_note_rseed(
     h.update(ua);
     h.update(b":");
     h.update(expires_at);
+    for term in terms {
+        h.update(b":");
+        h.update(term);
+    }
     h.update(prev);
     h.finalize()
         .as_bytes()

@@ -19,7 +19,7 @@ pub struct Transition<'a, 'n> {
     pub note: &'a NameNote<'n>,
     /// The name's current tip. `None` when the name is free.
     pub tip: Option<&'a Tip>,
-    /// Nullifier of `tip`. Required for an update or a release.
+    /// Nullifier of `tip`. Required when the action spends the live tip.
     pub tip_nullifier: Option<&'a [u8; 32]>,
     /// Ironwood nullifiers this transaction revealed.
     pub revealed: &'a [[u8; 32]],
@@ -30,17 +30,17 @@ pub struct Transition<'a, 'n> {
     /// The transaction contains one Name Note.
     pub single_name_note: bool,
     /// Besides the candidate Name Note, a claim's only registry output is its
-    /// zero-value successor anchor. Ignored for an update or a release.
+    /// zero-value successor anchor. Ignored unless the action is a claim.
     pub claim_successor: bool,
 }
 
 /// Whether this transaction is the Registry's transition for the note.
 ///
-/// An update or a release must reveal that name's tip nullifier, no other
-/// live name, and no live anchor. A claim must reveal exactly one live
-/// anchor, no live name, and carry the successor flag. In every case
-/// `prev_rcm` must be what [`prev_rcm_for`] requires, and the transaction
-/// must contain one Name Note.
+/// An update, release, sale, list, auction, or delist must reveal that
+/// name's tip nullifier, no other live name, and no live anchor. A claim
+/// must reveal exactly one live anchor, no live name, and carry the
+/// successor flag. In every case `prev_rcm` must be what [`prev_rcm_for`]
+/// requires, and the transaction must contain one Name Note.
 ///
 /// A match here does not inspect `cmx`. Call [`crate::verify_name_note`] or
 /// [`crate::verify_bound_name_note`] too.
@@ -55,7 +55,12 @@ pub fn authorized_transition(transition: &Transition<'_, '_>) -> bool {
                 && !spends_live_name(transition)
                 && transition.claim_successor
         }
-        Action::Update | Action::Release => {
+        Action::Update
+        | Action::Release
+        | Action::Sale
+        | Action::List
+        | Action::Auction
+        | Action::Delist => {
             let Some(tip_nullifier) = transition.tip_nullifier else {
                 return false;
             };
@@ -178,6 +183,31 @@ mod tests {
             &forged,
             &tip,
             &[TIP_NF],
+            &[TIP_NF],
+            &[],
+            true,
+        )));
+    }
+
+    #[test]
+    fn a_list_spends_the_live_tip() {
+        let prev = claim_rcm();
+        let prev_hex = hex::encode(prev);
+        let listed_memo = memo(&format!("ZNS:list:alice:{UA}:none:t1abc:5:{prev_hex}"));
+        let listed = parse(&listed_memo);
+        let tip = tip_of(prev);
+        assert!(authorized_transition(&update_transition(
+            &listed,
+            &tip,
+            &[TIP_NF],
+            &[TIP_NF],
+            &[],
+            true,
+        )));
+        assert!(!authorized_transition(&update_transition(
+            &listed,
+            &tip,
+            &[],
             &[TIP_NF],
             &[],
             true,

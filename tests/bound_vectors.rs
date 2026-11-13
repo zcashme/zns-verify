@@ -61,7 +61,7 @@ fn bytes32(hex_str: &str) -> [u8; 32] {
 #[test]
 fn rseed_vectors_match() {
     for v in VECTORS {
-        let rseed = name_note_rseed(v.action, v.name, UA, v.expires_at, &v.prev);
+        let rseed = name_note_rseed(v.action, v.name, UA, v.expires_at, &[], &v.prev);
         assert_eq!(hex::encode(rseed), v.expected_rseed_hex, "{}", v.label);
     }
 }
