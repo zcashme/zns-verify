@@ -99,6 +99,75 @@ fn memo_verifies_against_its_cmx_only() {
 }
 
 #[test]
+fn a_changed_listing_term_misses_the_original_commitment() {
+    let (g_d, pk_d) = (bytes32(G_D), bytes32(PK_D));
+    let rho = Rho::from_bytes(&[0x33u8; 32]).unwrap();
+    let ua = core::str::from_utf8(UA).unwrap();
+    let prev = hex::encode([0xabu8; 32]);
+    let list = format!("ZNS:list:alice:{ua}:none:t1abc:5:{prev}");
+    let auction = format!("ZNS:auction:alice:{ua}:none:t1abc:9:1:3000000:3001000:{prev}");
+    rejects_each_term(
+        &list,
+        &[
+            &format!("ZNS:list:alice:{ua}:none:t1xyz:5:{prev}"),
+            &format!("ZNS:list:alice:{ua}:none:t1abc:6:{prev}"),
+        ],
+        g_d,
+        pk_d,
+        rho,
+    );
+    rejects_each_term(
+        &auction,
+        &[
+            &format!("ZNS:auction:alice:{ua}:none:t1xyz:9:1:3000000:3001000:{prev}"),
+            &format!("ZNS:auction:alice:{ua}:none:t1abc:8:1:3000000:3001000:{prev}"),
+            &format!("ZNS:auction:alice:{ua}:none:t1abc:9:2:3000000:3001000:{prev}"),
+            &format!("ZNS:auction:alice:{ua}:none:t1abc:9:1:3000001:3001000:{prev}"),
+            &format!("ZNS:auction:alice:{ua}:none:t1abc:9:1:3000000:3001001:{prev}"),
+        ],
+        g_d,
+        pk_d,
+        rho,
+    );
+}
+
+fn rejects_each_term(original: &str, altered: &[&str], g_d: [u8; 32], pk_d: [u8; 32], rho: Rho) {
+    let memo = Memo::from_bytes(original.as_bytes()).unwrap();
+    let note = NameNote::parse(&memo).unwrap();
+    let cmx = commitment_of(&note, g_d, pk_d, rho);
+    assert!(verify_bound_name_note(&note, g_d, pk_d, 0, rho, cmx));
+    for text in altered {
+        let memo = Memo::from_bytes(text.as_bytes()).unwrap();
+        let tampered = NameNote::parse(&memo).unwrap();
+        assert!(
+            !verify_bound_name_note(&tampered, g_d, pk_d, 0, rho, cmx),
+            "{text}"
+        );
+    }
+}
+
+fn commitment_of(
+    note: &NameNote<'_>,
+    g_d: [u8; 32],
+    pk_d: [u8; 32],
+    rho: Rho,
+) -> ExtractedNoteCommitment {
+    let terms = note.terms();
+    let prev = *note.prev_rcm().unwrap().as_bytes();
+    let rseed = name_note_rseed(
+        note.action().as_bytes(),
+        note.name().as_str().as_bytes(),
+        note.ua().as_str().as_bytes(),
+        note.expires_at().unwrap().field_bytes().as_bytes(),
+        &terms[..note.term_count()],
+        &prev,
+    );
+    let psi = psi_from_rseed(&rseed, rho);
+    let rcm = rcm_from_rseed(&rseed, rho, g_d, pk_d, 0, psi);
+    note_commitment_cmx(g_d, pk_d, 0, rho, psi, rcm).unwrap()
+}
+
+#[test]
 fn cmx_vectors_match() {
     let (g_d, pk_d) = (bytes32(G_D), bytes32(PK_D));
     let rho = Rho::from_bytes(&[0x33u8; 32]).unwrap();
