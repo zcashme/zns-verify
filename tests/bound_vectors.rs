@@ -153,7 +153,7 @@ fn commitment_of(
     rho: Rho,
 ) -> ExtractedNoteCommitment {
     let terms = note.terms();
-    let prev = *note.prev_rcm().unwrap().as_bytes();
+    let prev = *note.prev().unwrap().as_bytes();
     let rseed = name_note_rseed(
         note.action().as_bytes(),
         note.name().as_str().as_bytes(),

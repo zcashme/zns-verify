@@ -17,9 +17,7 @@ pub mod decrypt;
 // ZNS Core Primitives
 // -----------------------------------------------------------------------------
 
-pub use memo::{
-    prev_rcm_for, Action, Expiry, Memo, Name, NameNote, PrevRcm, Tip, Ua, ZERO_PREV_RCM,
-};
+pub use memo::{prev_for, Action, Expiry, Memo, Name, NameNote, PrevCmx, Tip, Ua};
 
 pub use commitment::{
     name_note_rseed, note_commitment_cmx, psi_from_rseed, rcm_from_rseed, ExtractedNoteCommitment,
