@@ -21,7 +21,7 @@ transitions. Request memos (user -> Mint treasury intake) are a separate lane;
 their implementation lives in the mint, and they never enter the verification
 path.
 
-- `name_note_rseed(action, name, ua, expires_at, terms, prev) -> rseed` -- re-derive a Name Note's rseed from its record.
+- `name_note_rseed(fields, prev) -> rseed` -- re-derive a Name Note's rseed from its memo fields (`Memo::fields`) and its predecessor (WP §4.4).
 - `psi_from_rseed(...)`, `rcm_from_rseed(...)` -- ψ and rcm from that rseed, by the Ironwood derivations.
 - `note_commitment_cmx(...)` -- recompute the Sinsemilla note commitment.
 - `verify_bound_name_note(...)` -- recompute and compare against cmx; `true` means consistent, not authorised.
