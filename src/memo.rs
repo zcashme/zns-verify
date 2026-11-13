@@ -794,8 +794,7 @@ mod tests {
         assert_eq!(Action::Auction.as_str(), "auction");
         assert_eq!(Action::Delist.as_str(), "delist");
         // as_bytes must stay the byte view of as_str: the spelling is
-        // load-bearing, it is hashed into zns_psi_rcm (WP §3.3) and
-        // name_note_rseed.
+        // load-bearing, it is hashed into name_note_rseed.
         for action in [
             Action::Claim,
             Action::Update,

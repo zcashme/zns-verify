@@ -166,14 +166,14 @@ and minimal dependencies. Production crates: `blake2b_simd`, `pasta_curves`,
 ## Usage
 
 ```rust
-use zns_verify::{verify_name_note, ExtractedNoteCommitment, Memo, NameNote, Rho};
+use zns_verify::{verify_bound_name_note, ExtractedNoteCommitment, Memo, NameNote, Rho};
 
-# let g_d: [u8; 32] = hex::decode("de4338f2ab9fd8300a3a1c20dd690ce27026c6001c295d7c641a067ce809b11e").unwrap().try_into().unwrap();
-# let pk_d: [u8; 32] = hex::decode("6df609f5710f3b5deecd4ee4b8f0173b44af6cf8918ac00269526031ba628996").unwrap().try_into().unwrap();
+# let g_d: [u8; 32] = hex::decode("dd0c23bc9720ff21aaab76a7b7276231ee212f156e9c318c355972628efed408").unwrap().try_into().unwrap();
+# let pk_d: [u8; 32] = hex::decode("81a5fe8f45b34630f29d0c8dd8dc1cc3573386f416cb324133156d723df5e62d").unwrap().try_into().unwrap();
 # let rho = Rho::from_bytes(&[0x33u8; 32]).unwrap();
 # let on_chain_cmx = ExtractedNoteCommitment::from_bytes(
 #     &<[u8; 32]>::try_from(
-#         hex::decode("cc320736a0c1df1e4ffcee2b64aa73a9e6d06bb218e155a6fef422e1ecb1f70c").unwrap(),
+#         hex::decode("a8e6da4a73de6efa14c13e565a8701f210b17e4de4b067a41a41910383b9da18").unwrap(),
 #     )
 #     .unwrap(),
 # )
@@ -186,7 +186,7 @@ let memo = Memo::from_bytes(
 let note = NameNote::parse(&memo)?;
 // `consistent` means the memo fields reproduce `cmx`. The Registry spend is
 // `authorized_transition`, a separate call (see Trust boundary).
-let consistent = verify_name_note(
+let consistent = verify_bound_name_note(
     &note,
     g_d, pk_d, 0, rho, on_chain_cmx,
 );

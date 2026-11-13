@@ -22,14 +22,14 @@ pub use memo::{
 };
 
 pub use commitment::{
-    name_note_rseed, note_commitment_cmx, psi_from_rseed, rcm_from_rseed, zns_psi_rcm,
-    ExtractedNoteCommitment, Rho, NAME_NOTE_KIND, NAME_NOTE_PERSONALIZATION, ZNS_DOMAIN_TAG,
+    name_note_rseed, note_commitment_cmx, psi_from_rseed, rcm_from_rseed, ExtractedNoteCommitment,
+    Rho, NAME_NOTE_KIND, NAME_NOTE_PERSONALIZATION,
 };
 
 pub use memo::MemoError;
 
 pub use authority::{authorized_transition, Transition};
-pub use verify::{verify_bound_name_note, verify_name_note, verify_name_note_with_witness};
+pub use verify::verify_bound_name_note;
 
 pub use group::ff::PrimeField;
 pub use pasta_curves::pallas;

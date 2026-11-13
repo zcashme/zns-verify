@@ -1,13 +1,15 @@
 //! Trial decryption for Name Notes, on upstream `orchard`.
-
-mod domain;
-
-pub use domain::{CandidateNote, ZnsIronwoodDomain};
+//!
+//! A bound Name Note is an ordinary Ironwood note: its rseed reproduces its
+//! published `cmx`, so upstream `IronwoodDomain` decrypts it unchanged.
 
 use crate::commitment::ExtractedNoteCommitment;
 use orchard::keys::{FullViewingKey, PreparedIncomingViewingKey, Scope};
-use orchard::note_encryption::CompactAction;
+use orchard::note_encryption::{CompactAction, IronwoodDomain};
 use orchard::{Action, Address, Note};
+use zcash_note_encryption::{
+    try_compact_note_decryption, try_note_decryption, try_output_recovery_with_ovk,
+};
 use zcash_protocol::memo::MemoBytes;
 
 /// Compact-block trial decryption; the caller validates after fetching the full tx.
@@ -16,15 +18,15 @@ pub fn try_compact_ironwood(
     action: &CompactAction,
 ) -> Option<(Note, Address, ExtractedNoteCommitment)> {
     let ivk = PreparedIncomingViewingKey::new(&fvk.to_ivk(Scope::External));
-    let (candidate, recipient) =
-        ZnsIronwoodDomain::for_compact_action(action).try_decrypt_compact(action, &ivk)?;
-    let cmx = ExtractedNoteCommitment::from_bytes(&candidate.cmx().to_bytes())?;
-    Some((*candidate.note(), recipient, cmx))
+    let domain = IronwoodDomain::for_compact_action(action);
+    let (note, recipient) = try_compact_note_decryption(&domain, &ivk, action)?;
+    let cmx = ExtractedNoteCommitment::from_bytes(&action.cmx().to_bytes())?;
+    Some((note, recipient, cmx))
 }
 
 /// Full-transaction trial decryption returning the memo.
 ///
-/// [`crate::verify_name_note`] checks the memo against `cmx`.
+/// [`crate::verify_bound_name_note`] checks the memo against `cmx`.
 /// [`crate::authorized_transition`] checks that the transaction spent the
 /// name's live tip or claim anchor.
 pub fn try_decrypt_ironwood<A>(
@@ -32,15 +34,10 @@ pub fn try_decrypt_ironwood<A>(
     fvk: &FullViewingKey,
 ) -> Option<(Note, Address, MemoBytes, ExtractedNoteCommitment)> {
     let ivk = PreparedIncomingViewingKey::new(&fvk.to_ivk(Scope::External));
-    let (candidate, recipient, memo) =
-        ZnsIronwoodDomain::for_action(action).try_decrypt(action, &ivk)?;
-    let cmx = ExtractedNoteCommitment::from_bytes(&candidate.cmx().to_bytes())?;
-    Some((
-        *candidate.note(),
-        recipient,
-        MemoBytes::from_bytes(&memo).ok()?,
-        cmx,
-    ))
+    let domain = IronwoodDomain::for_action(action);
+    let (note, recipient, memo) = try_note_decryption(&domain, &ivk, action)?;
+    let cmx = ExtractedNoteCommitment::from_bytes(&action.cmx().to_bytes())?;
+    Some((note, recipient, MemoBytes::from_bytes(&memo).ok()?, cmx))
 }
 
 /// Outgoing recovery via the FVK's OVK proving the note was created by this account.
@@ -49,15 +46,16 @@ pub fn try_decrypt_ironwood_sent<A>(
     fvk: &FullViewingKey,
 ) -> Option<(Note, Address, MemoBytes, ExtractedNoteCommitment)> {
     let ovk = fvk.to_ovk(Scope::External);
-    let (candidate, recipient, memo) =
-        ZnsIronwoodDomain::for_action(action).try_decrypt_sent(action, &ovk)?;
-    let cmx = ExtractedNoteCommitment::from_bytes(&candidate.cmx().to_bytes())?;
-    Some((
-        *candidate.note(),
-        recipient,
-        MemoBytes::from_bytes(&memo).ok()?,
-        cmx,
-    ))
+    let domain = IronwoodDomain::for_action(action);
+    let (note, recipient, memo) = try_output_recovery_with_ovk(
+        &domain,
+        &ovk,
+        action,
+        action.cv_net(),
+        &action.encrypted_note().out_ciphertext,
+    )?;
+    let cmx = ExtractedNoteCommitment::from_bytes(&action.cmx().to_bytes())?;
+    Some((note, recipient, MemoBytes::from_bytes(&memo).ok()?, cmx))
 }
 
 #[cfg(test)]
@@ -69,7 +67,7 @@ mod tests {
         ExtractedNoteCommitment as Cmx, Nullifier, RandomSeed, Rho as OrchardRho,
         TransmittedNoteCiphertext,
     };
-    use orchard::note_encryption::{IronwoodDomain, IronwoodNoteEncryption};
+    use orchard::note_encryption::IronwoodNoteEncryption;
     use orchard::value::{NoteValue, ValueCommitment};
     use orchard::NoteVersion;
     use pasta_curves::pallas;
@@ -134,19 +132,13 @@ mod tests {
         .unwrap()
     }
 
-    /// The one difference from Ironwood: a note published under a cmx other
-    /// than its rseed one (as every rcm/ψ Name Note is) decrypts, and comes
-    /// back with the cmx the action published.
+    /// A note decrypts on every path under the cmx its rseed gives, and on
+    /// none under another one.
     #[test]
-    fn a_note_under_a_foreign_cmx_decrypts() {
+    fn a_note_decrypts_only_under_its_own_cmx() {
         let (fvk, note) = received_note();
-        let cmx = Cmx::from_bytes(&pallas::Base::from(42u64).to_repr()).unwrap();
-        assert_ne!(cmx, Cmx::from(note.commitment()));
+        let cmx = Cmx::from(note.commitment());
         let action = ironwood_action(&fvk, note, cmx, [0x77; 512]);
-
-        let ivk = PreparedIncomingViewingKey::new(&fvk.to_ivk(Scope::External));
-        let ironwood = IronwoodDomain::for_action(&action);
-        assert!(zcash_note_encryption::try_note_decryption(&ironwood, &ivk, &action).is_none());
 
         let ours = ExtractedNoteCommitment::from_bytes(&cmx.to_bytes()).unwrap();
         let (n, _, c) = try_compact_ironwood(&fvk, &CompactAction::from(&action)).unwrap();
@@ -155,5 +147,11 @@ mod tests {
         assert_eq!((n, *memo.as_array(), c), (note, [0x77; 512], ours));
         let (n, _, memo, c) = try_decrypt_ironwood_sent(&action, &fvk).unwrap();
         assert_eq!((n, *memo.as_array(), c), (note, [0x77; 512], ours));
+
+        let foreign = Cmx::from_bytes(&pallas::Base::from(42u64).to_repr()).unwrap();
+        let action = ironwood_action(&fvk, note, foreign, [0x77; 512]);
+        assert!(try_compact_ironwood(&fvk, &CompactAction::from(&action)).is_none());
+        assert!(try_decrypt_ironwood(&action, &fvk).is_none());
+        assert!(try_decrypt_ironwood_sent(&action, &fvk).is_none());
     }
 }
