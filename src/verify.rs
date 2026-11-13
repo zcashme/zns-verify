@@ -52,6 +52,11 @@ pub fn verify_name_note_with_witness(
     rho: Rho,
     cmx: ExtractedNoteCommitment,
 ) -> Option<(pallas::Base, pallas::Scalar)> {
+    // A list or an auction carries terms this derivation does not hash.
+    // The bound check is the one that sees them.
+    if note.term_count() != 0 {
+        return None;
+    }
     let (expires_at, prev) = expiry_and_prev(note);
     let (psi, rcm) = zns_psi_rcm(
         note.action().as_bytes(),
@@ -270,5 +275,19 @@ mod tests {
         )
         .unwrap();
         assert!(verify_name_note(&note, G_D, PK_D, 0, rho(), cmx));
+    }
+
+    #[test]
+    fn a_listing_has_no_legacy_opening() {
+        let prev = [0xab; 32];
+        let prev_hex = hex::encode(prev);
+        let cheap = memo(&format!("ZNS:list:alice:{UA}:none:t1abc:5:{prev_hex}"));
+        let dear = memo(&format!("ZNS:list:alice:{UA}:none:t1abc:6:{prev_hex}"));
+        let cheap = NameNote::parse(&cheap).unwrap();
+        let dear = NameNote::parse(&dear).unwrap();
+        let (_, _, cmx) = compute_cmx(b"list", b"alice", UA.as_bytes(), b"none", &prev);
+        assert!(!verify_name_note(&cheap, G_D, PK_D, 0, rho(), cmx));
+        assert!(!verify_name_note(&dear, G_D, PK_D, 0, rho(), cmx));
+        assert!(verify_name_note_with_witness(&cheap, G_D, PK_D, 0, rho(), cmx).is_none());
     }
 }

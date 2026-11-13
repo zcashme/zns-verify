@@ -474,6 +474,7 @@ impl<'a> NameNote<'a> {
     ///
     /// Returns [`MemoError::TooLong`] if the UA cannot fit, which valid
     /// protocol transitions never trigger (WP §4, on-chain completeness).
+    /// Returns the parse error when the fields are not a Name Note.
     pub fn encode(&self) -> Result<Memo, MemoError> {
         let verb = self.action().as_bytes();
         let name = self.name().as_str().as_bytes();
@@ -495,7 +496,10 @@ impl<'a> NameNote<'a> {
             write_field(&mut memo, &mut at, field)?;
         }
         write_field(&mut memo, &mut at, &prev_hex)?;
-        Ok(Memo(memo))
+        let memo = Memo(memo);
+        // The written bytes have to be a note parse accepts.
+        NameNote::parse(&memo)?;
+        Ok(memo)
     }
 
     /// The transition kind.
@@ -972,6 +976,34 @@ mod tests {
         assert_ne!(rseed_of(&cheap), rseed_of(&dear));
         assert_eq!(cheap.term_count(), 2);
         assert_eq!(dear.terms()[1], b"6");
+    }
+
+    #[test]
+    fn encode_refuses_terms_parse_rejects() {
+        let name = Name::parse("alice").unwrap();
+        let ua = Ua::parse(UA).unwrap();
+        let prev_rcm = PrevRcm::from_hex(HEX).unwrap();
+        let list = NameNote::List {
+            name,
+            ua,
+            expires_at: Expiry::NEVER,
+            pay_to: "t1abc",
+            price: "-1",
+            prev_rcm,
+        };
+        assert_eq!(list.encode(), Err(MemoError::InvalidTerms));
+        let auction = NameNote::Auction {
+            name,
+            ua,
+            expires_at: Expiry::NEVER,
+            pay_to: "t1abc",
+            start_price: "1",
+            min_price: "9",
+            start: "3000000",
+            end: "3001000",
+            prev_rcm,
+        };
+        assert_eq!(auction.encode(), Err(MemoError::InvalidTerms));
     }
 
     fn rseed_of(note: &NameNote<'_>) -> [u8; 32] {

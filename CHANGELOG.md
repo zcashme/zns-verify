@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Breaking:** `name_note_rseed` takes the listing terms. Empty terms
   keep the claim, update, and release rseed.
+- `verify_name_note` has no opening for a list or an auction.
+  `encode` returns a memo only when `parse` accepts it.
 
 ## [0.2.1] - 2026-11-12
 
