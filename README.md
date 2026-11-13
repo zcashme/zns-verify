@@ -58,8 +58,10 @@ the note's recipient.
   reveals this name's live tip (or exactly one claim anchor), and `prev_rcm`
   extends that tip. Both this and `verify_name_note` have to hold.
 - `NameNote::parse(&Memo)` / `note.encode()` -- the canonical Name Note memo
-  grammar as a three-variant enum (`Claim` / `Update` / `Release`) with validated
-  field types (`Name`, `Ua`, `Expiry`, `PrevRcm`).
+  grammar (`Claim`, `Update`, `Release`, `Sale`, `List`, `Auction`, `Delist`)
+  with validated field types (`Name`, `Ua`, `Expiry`, `PrevRcm`). A list's terms
+  are `t1:price` and an auction's are `t1:start:min:start-block:end-block`,
+  between the expiry and the predecessor.
 - `prev_rcm_for` -- the per-name transition rule: which `prev_rcm` an action must extend.
 
 ### Bound Name Notes
@@ -69,9 +71,10 @@ is computed from its record, and ψ and rcm follow from that `rseed` as for any
 Ironwood note. The memo grammar is the same; the last field holds the
 predecessor's `cmx` instead of its `rcm`.
 
-- `name_note_rseed(action, name, ua, expires_at, prev)` -- BLAKE2b-256 with
-  personalization `ZNS___Name_Notes` over `0x01 ‖ I2LEOSP64(len) ‖
-  action:name:ua:expires_at ‖ prev`.
+- `name_note_rseed(action, name, ua, expires_at, terms, prev)` -- BLAKE2b-256
+  with personalization `ZNS___Name_Notes` over `0x01 ‖ I2LEOSP64(len) ‖
+  action:name:ua:expires_at[:terms] ‖ prev`. Empty `terms` is a claim, update,
+  release, sale, or delist.
 - `psi_from_rseed` / `rcm_from_rseed` -- the Ironwood derivations from an `rseed`.
 - `verify_bound_name_note(...)` -- the commitment check for a bound Name Note
   (consistent, not authorised, as above). `authorized_transition` applies as

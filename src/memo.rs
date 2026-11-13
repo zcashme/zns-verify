@@ -181,6 +181,14 @@ pub enum Action {
     Update,
     /// Terminate a name's linkage to an address.
     Release,
+    /// Hand the name to a buyer. The name stays live.
+    Sale,
+    /// Put the name up for sale at one price. The owner and expiry carry forward.
+    List,
+    /// Put the name up for sale on a falling price. The owner and expiry carry forward.
+    Auction,
+    /// Take the name off the market. The owner and expiry carry forward.
+    Delist,
 }
 
 impl Action {
@@ -192,6 +200,10 @@ impl Action {
             Action::Claim => "claim",
             Action::Update => "update",
             Action::Release => "release",
+            Action::Sale => "sale",
+            Action::List => "list",
+            Action::Auction => "auction",
+            Action::Delist => "delist",
         }
     }
 
@@ -206,6 +218,10 @@ impl Action {
             b"claim" => Some(Action::Claim),
             b"update" => Some(Action::Update),
             b"release" => Some(Action::Release),
+            b"sale" => Some(Action::Sale),
+            b"list" => Some(Action::List),
+            b"auction" => Some(Action::Auction),
+            b"delist" => Some(Action::Delist),
             _ => None,
         }
     }
@@ -234,15 +250,24 @@ pub fn prev_rcm_for(tip: Option<&Tip>, action: Action) -> Option<[u8; 32]> {
     match (action, tip) {
         (Action::Claim, None) => Some(ZERO_PREV_RCM),
         (Action::Claim, Some(t)) if t.action == Action::Release => Some(ZERO_PREV_RCM),
-        (Action::Update | Action::Release, Some(t)) if t.action != Action::Release => Some(t.rcm),
+        (
+            Action::Update
+            | Action::Release
+            | Action::Sale
+            | Action::List
+            | Action::Auction
+            | Action::Delist,
+            Some(t),
+        ) if t.action != Action::Release => Some(t.rcm),
         _ => None,
     }
 }
 
 /// A committed Name Note (WP §3.1): the form that appears on chain.
 ///
-/// A release has no expiry field, and a claim has no predecessor field: the
-/// type makes those constraints structural rather than checked.
+/// A release has no expiry. A claim has no predecessor. A list or an auction
+/// carries its terms between the expiry and the predecessor. A sale, list,
+/// auction, or delist spends a predecessor and leaves the name live.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NameNote<'a> {
     /// Bind `name` to `ua` for `expires_at`; no predecessor exists.
@@ -274,6 +299,64 @@ pub enum NameNote<'a> {
         /// The disclosed predecessor witness.
         prev_rcm: PrevRcm,
     },
+    /// Hand `name` to `ua`. The name stays live.
+    Sale {
+        /// The name being sold.
+        name: Name<'a>,
+        /// The buyer's UA.
+        ua: Ua<'a>,
+        /// The carried-forward expiration.
+        expires_at: Expiry<'a>,
+        /// The disclosed predecessor witness.
+        prev_rcm: PrevRcm,
+    },
+    /// Offer `name` at one price. The owner and expiry carry forward.
+    List {
+        /// The name being listed.
+        name: Name<'a>,
+        /// The owner's UA.
+        ua: Ua<'a>,
+        /// The carried-forward expiration.
+        expires_at: Expiry<'a>,
+        /// The transparent payment address, as written.
+        pay_to: &'a str,
+        /// The price in ZEC, as written.
+        price: &'a str,
+        /// The disclosed predecessor witness.
+        prev_rcm: PrevRcm,
+    },
+    /// Offer `name` on a falling price. The owner and expiry carry forward.
+    Auction {
+        /// The name being auctioned.
+        name: Name<'a>,
+        /// The owner's UA.
+        ua: Ua<'a>,
+        /// The carried-forward expiration.
+        expires_at: Expiry<'a>,
+        /// The transparent payment address, as written.
+        pay_to: &'a str,
+        /// The opening price in ZEC, as written.
+        start_price: &'a str,
+        /// The floor price in ZEC, as written.
+        min_price: &'a str,
+        /// The opening block height, as written.
+        start: &'a str,
+        /// The closing block height, as written.
+        end: &'a str,
+        /// The disclosed predecessor witness.
+        prev_rcm: PrevRcm,
+    },
+    /// Take `name` off the market. The owner and expiry carry forward.
+    Delist {
+        /// The name being delisted.
+        name: Name<'a>,
+        /// The owner's UA.
+        ua: Ua<'a>,
+        /// The carried-forward expiration.
+        expires_at: Expiry<'a>,
+        /// The disclosed predecessor witness.
+        prev_rcm: PrevRcm,
+    },
 }
 
 impl<'a> NameNote<'a> {
@@ -291,16 +374,53 @@ impl<'a> NameNote<'a> {
         let name = Name::parse(fields.next().ok_or(MemoError::FieldCount)?)?;
         let ua = Ua::parse(fields.next().ok_or(MemoError::FieldCount)?)?;
         let expires_field = fields.next().ok_or(MemoError::FieldCount)?;
-        let prev_hex = fields.next().ok_or(MemoError::FieldCount)?;
-        if fields.next().is_some() {
-            return Err(MemoError::FieldCount);
-        }
-        let prev = PrevRcm::from_hex(prev_hex)?;
-
-        let action = Action::from_bytes(verb.as_bytes()).ok_or(MemoError::UnknownVerb)?;
+        let action = Action::from_bytes(verb.as_bytes());
 
         match action {
-            Action::Claim => {
+            Some(Action::List) => {
+                let pay_to = fields.next().ok_or(MemoError::FieldCount)?;
+                let price = fields.next().ok_or(MemoError::FieldCount)?;
+                let prev = predecessor(&mut fields)?;
+                if !valid_list(pay_to, price) {
+                    return Err(MemoError::InvalidTerms);
+                }
+                Ok(NameNote::List {
+                    name,
+                    ua,
+                    expires_at: Expiry::from_field(expires_field)?,
+                    pay_to,
+                    price,
+                    prev_rcm: prev,
+                })
+            }
+            Some(Action::Auction) => {
+                let pay_to = fields.next().ok_or(MemoError::FieldCount)?;
+                let start_price = fields.next().ok_or(MemoError::FieldCount)?;
+                let min_price = fields.next().ok_or(MemoError::FieldCount)?;
+                let start = fields.next().ok_or(MemoError::FieldCount)?;
+                let end = fields.next().ok_or(MemoError::FieldCount)?;
+                let prev = predecessor(&mut fields)?;
+                if !valid_auction(pay_to, start_price, min_price, start, end) {
+                    return Err(MemoError::InvalidTerms);
+                }
+                Ok(NameNote::Auction {
+                    name,
+                    ua,
+                    expires_at: Expiry::from_field(expires_field)?,
+                    pay_to,
+                    start_price,
+                    min_price,
+                    start,
+                    end,
+                    prev_rcm: prev,
+                })
+            }
+            Some(Action::Claim) => {
+                let prev_hex = fields.next().ok_or(MemoError::FieldCount)?;
+                if fields.next().is_some() {
+                    return Err(MemoError::FieldCount);
+                }
+                let prev = PrevRcm::from_hex(prev_hex)?;
                 if !prev.is_zero() {
                     return Err(MemoError::InvalidPrevRcm);
                 }
@@ -310,14 +430,26 @@ impl<'a> NameNote<'a> {
                     expires_at: Expiry::from_field(expires_field)?,
                 })
             }
-            Action::Update | Action::Release if prev.is_zero() => Err(MemoError::InvalidPrevRcm),
-            Action::Update => Ok(NameNote::Update {
+            Some(Action::Update) => Ok(NameNote::Update {
                 name,
                 ua,
                 expires_at: Expiry::from_field(expires_field)?,
-                prev_rcm: prev,
+                prev_rcm: predecessor(&mut fields)?,
             }),
-            Action::Release => {
+            Some(Action::Sale) => Ok(NameNote::Sale {
+                name,
+                ua,
+                expires_at: Expiry::from_field(expires_field)?,
+                prev_rcm: predecessor(&mut fields)?,
+            }),
+            Some(Action::Delist) => Ok(NameNote::Delist {
+                name,
+                ua,
+                expires_at: Expiry::from_field(expires_field)?,
+                prev_rcm: predecessor(&mut fields)?,
+            }),
+            Some(Action::Release) => {
+                let prev = predecessor(&mut fields)?;
                 if expires_field != "none" {
                     return Err(MemoError::InvalidExpiry);
                 }
@@ -327,6 +459,14 @@ impl<'a> NameNote<'a> {
                     prev_rcm: prev,
                 })
             }
+            None => {
+                // A short memo is a field-count error even when the verb is unknown.
+                let _prev = fields.next().ok_or(MemoError::FieldCount)?;
+                if fields.next().is_some() {
+                    return Err(MemoError::FieldCount);
+                }
+                Err(MemoError::UnknownVerb)
+            }
         }
     }
 
@@ -334,53 +474,32 @@ impl<'a> NameNote<'a> {
     ///
     /// Returns [`MemoError::TooLong`] if the UA cannot fit, which valid
     /// protocol transitions never trigger (WP §4, on-chain completeness).
+    /// Returns the parse error when the fields are not a Name Note.
     pub fn encode(&self) -> Result<Memo, MemoError> {
         let verb = self.action().as_bytes();
-        let (name, ua, expires_bytes, prev_hex) = match self {
-            NameNote::Claim {
-                name,
-                ua,
-                expires_at,
-            } => {
-                const ZERO_HEX: [u8; 64] = [b'0'; 64];
-                (
-                    name.as_str().as_bytes(),
-                    ua.as_str().as_bytes(),
-                    expires_at.field_bytes().as_bytes(),
-                    ZERO_HEX,
-                )
-            }
-            NameNote::Update {
-                name,
-                ua,
-                expires_at,
-                prev_rcm,
-            } => (
-                name.as_str().as_bytes(),
-                ua.as_str().as_bytes(),
-                expires_at.field_bytes().as_bytes(),
-                prev_rcm.to_hex(),
-            ),
-            NameNote::Release { name, ua, prev_rcm } => (
-                name.as_str().as_bytes(),
-                ua.as_str().as_bytes(),
-                b"none".as_slice(),
-                prev_rcm.to_hex(),
-            ),
-        };
+        let name = self.name().as_str().as_bytes();
+        let ua = self.ua().as_str().as_bytes();
+        let expires = self
+            .expires_at()
+            .unwrap_or(Expiry::NEVER)
+            .field_bytes()
+            .as_bytes();
+        let prev_hex = self.prev_rcm().unwrap_or(PrevRcm::ZERO).to_hex();
+        let terms = self.terms();
         let mut memo = [0u8; MEMO_SIZE];
         memo[..3].copy_from_slice(b"ZNS");
         let mut at = 3;
-        for field in [verb, name, ua, expires_bytes, &prev_hex] {
-            if at + 1 + field.len() > MEMO_SIZE {
-                return Err(MemoError::TooLong);
-            }
-            memo[at] = b':';
-            at += 1;
-            memo[at..at + field.len()].copy_from_slice(field);
-            at += field.len();
+        for field in [verb, name, ua, expires] {
+            write_field(&mut memo, &mut at, field)?;
         }
-        Ok(Memo(memo))
+        for field in &terms[..self.term_count()] {
+            write_field(&mut memo, &mut at, field)?;
+        }
+        write_field(&mut memo, &mut at, &prev_hex)?;
+        let memo = Memo(memo);
+        // The written bytes have to be a note parse accepts.
+        NameNote::parse(&memo)?;
+        Ok(memo)
     }
 
     /// The transition kind.
@@ -389,6 +508,54 @@ impl<'a> NameNote<'a> {
             NameNote::Claim { .. } => Action::Claim,
             NameNote::Update { .. } => Action::Update,
             NameNote::Release { .. } => Action::Release,
+            NameNote::Sale { .. } => Action::Sale,
+            NameNote::List { .. } => Action::List,
+            NameNote::Auction { .. } => Action::Auction,
+            NameNote::Delist { .. } => Action::Delist,
+        }
+    }
+
+    /// Listing fields between the expiry and the predecessor.
+    ///
+    /// [`Self::term_count`] is how many leading entries are live: two for a
+    /// list, five for an auction, none otherwise.
+    pub fn terms(&self) -> [&'a [u8]; 5] {
+        match self {
+            NameNote::List { pay_to, price, .. } => {
+                [pay_to.as_bytes(), price.as_bytes(), b"", b"", b""]
+            }
+            NameNote::Auction {
+                pay_to,
+                start_price,
+                min_price,
+                start,
+                end,
+                ..
+            } => [
+                pay_to.as_bytes(),
+                start_price.as_bytes(),
+                min_price.as_bytes(),
+                start.as_bytes(),
+                end.as_bytes(),
+            ],
+            NameNote::Claim { .. }
+            | NameNote::Update { .. }
+            | NameNote::Release { .. }
+            | NameNote::Sale { .. }
+            | NameNote::Delist { .. } => [b""; 5],
+        }
+    }
+
+    /// How many [`Self::terms`] entries belong to the record.
+    pub fn term_count(&self) -> usize {
+        match self {
+            NameNote::List { .. } => 2,
+            NameNote::Auction { .. } => 5,
+            NameNote::Claim { .. }
+            | NameNote::Update { .. }
+            | NameNote::Release { .. }
+            | NameNote::Sale { .. }
+            | NameNote::Delist { .. } => 0,
         }
     }
 
@@ -397,7 +564,11 @@ impl<'a> NameNote<'a> {
         match self {
             NameNote::Claim { name, .. }
             | NameNote::Update { name, .. }
-            | NameNote::Release { name, .. } => name,
+            | NameNote::Release { name, .. }
+            | NameNote::Sale { name, .. }
+            | NameNote::List { name, .. }
+            | NameNote::Auction { name, .. }
+            | NameNote::Delist { name, .. } => name,
         }
     }
 
@@ -406,16 +577,23 @@ impl<'a> NameNote<'a> {
         match self {
             NameNote::Claim { ua, .. }
             | NameNote::Update { ua, .. }
-            | NameNote::Release { ua, .. } => ua,
+            | NameNote::Release { ua, .. }
+            | NameNote::Sale { ua, .. }
+            | NameNote::List { ua, .. }
+            | NameNote::Auction { ua, .. }
+            | NameNote::Delist { ua, .. } => ua,
         }
     }
 
     /// The committed expiration; absent on a release.
     pub fn expires_at(&self) -> Option<Expiry<'a>> {
         match self {
-            NameNote::Claim { expires_at, .. } | NameNote::Update { expires_at, .. } => {
-                Some(*expires_at)
-            }
+            NameNote::Claim { expires_at, .. }
+            | NameNote::Update { expires_at, .. }
+            | NameNote::Sale { expires_at, .. }
+            | NameNote::List { expires_at, .. }
+            | NameNote::Auction { expires_at, .. }
+            | NameNote::Delist { expires_at, .. } => Some(*expires_at),
             NameNote::Release { .. } => None,
         }
     }
@@ -424,11 +602,111 @@ impl<'a> NameNote<'a> {
     pub fn prev_rcm(&self) -> Option<PrevRcm> {
         match self {
             NameNote::Claim { .. } => None,
-            NameNote::Update { prev_rcm, .. } | NameNote::Release { prev_rcm, .. } => {
-                Some(*prev_rcm)
-            }
+            NameNote::Update { prev_rcm, .. }
+            | NameNote::Release { prev_rcm, .. }
+            | NameNote::Sale { prev_rcm, .. }
+            | NameNote::List { prev_rcm, .. }
+            | NameNote::Auction { prev_rcm, .. }
+            | NameNote::Delist { prev_rcm, .. } => Some(*prev_rcm),
         }
     }
+}
+
+/// The next field is a nonzero predecessor, and nothing follows it.
+fn predecessor<'a>(fields: &mut impl Iterator<Item = &'a str>) -> Result<PrevRcm, MemoError> {
+    let prev_hex = fields.next().ok_or(MemoError::FieldCount)?;
+    if fields.next().is_some() {
+        return Err(MemoError::FieldCount);
+    }
+    let prev = PrevRcm::from_hex(prev_hex)?;
+    if prev.is_zero() {
+        return Err(MemoError::InvalidPrevRcm);
+    }
+    Ok(prev)
+}
+
+fn write_field(memo: &mut [u8; MEMO_SIZE], at: &mut usize, field: &[u8]) -> Result<(), MemoError> {
+    if *at + 1 + field.len() > MEMO_SIZE {
+        return Err(MemoError::TooLong);
+    }
+    memo[*at] = b':';
+    *at += 1;
+    memo[*at..*at + field.len()].copy_from_slice(field);
+    *at += field.len();
+    Ok(())
+}
+
+/// A list's payment address is non-empty and its price is ZEC text.
+fn valid_list(pay_to: &str, price: &str) -> bool {
+    valid_pay_to(pay_to) && zec_zatoshis(price).is_some()
+}
+
+/// An auction pays a non-empty address, opens above its floor, and ends
+/// on a later block.
+fn valid_auction(pay_to: &str, start_price: &str, min_price: &str, start: &str, end: &str) -> bool {
+    let (Some(start_price), Some(min_price), Some(start), Some(end)) = (
+        zec_zatoshis(start_price),
+        zec_zatoshis(min_price),
+        block_height(start),
+        block_height(end),
+    ) else {
+        return false;
+    };
+    valid_pay_to(pay_to) && end > start && start_price > min_price
+}
+
+/// The payment address is non-empty text. The mint checks the transparent
+/// encoding when it writes the note.
+fn valid_pay_to(text: &str) -> bool {
+    !text.is_empty()
+}
+
+/// ZEC with at most eight decimal places, in zatoshis. A dot requires
+/// at least one decimal digit.
+fn zec_zatoshis(text: &str) -> Option<u64> {
+    let (whole, frac) = match text.split_once('.') {
+        Some((whole, frac)) if !frac.is_empty() => (whole, frac),
+        Some(_) => return None,
+        None => (text, ""),
+    };
+    if whole.is_empty()
+        || (whole.len() > 1 && whole.starts_with('0'))
+        || !whole.bytes().all(|b| b.is_ascii_digit())
+        || frac.len() > 8
+        || !frac.bytes().all(|b| b.is_ascii_digit())
+    {
+        return None;
+    }
+    let whole: u64 = whole.parse().ok()?;
+    whole
+        .checked_mul(100_000_000)?
+        .checked_add(frac_zats(frac)?)
+}
+
+fn frac_zats(frac: &str) -> Option<u64> {
+    if frac.is_empty() {
+        return Some(0);
+    }
+    let mut n = 0u64;
+    for b in frac.bytes() {
+        n = n.checked_mul(10)?.checked_add(u64::from(b - b'0'))?;
+    }
+    let mut scale = 1u64;
+    for _ in frac.len()..8 {
+        scale = scale.checked_mul(10)?;
+    }
+    n.checked_mul(scale)
+}
+
+/// A block height as a decimal `u32`. A leading zero is refused.
+fn block_height(text: &str) -> Option<u32> {
+    if text.is_empty()
+        || (text.len() > 1 && text.starts_with('0'))
+        || !text.bytes().all(|b| b.is_ascii_digit())
+    {
+        return None;
+    }
+    text.parse().ok()
 }
 
 /// Why a memo failed to parse or encode.
@@ -448,6 +726,8 @@ pub enum MemoError {
     InvalidExpiry,
     /// `prev_rcm` is not 64 lowercase hex chars, or inconsistent with the action.
     InvalidPrevRcm,
+    /// A list or auction term is empty, non-canonical, or out of order.
+    InvalidTerms,
     /// The encoded memo would exceed [`MEMO_SIZE`].
     TooLong,
 }
@@ -509,10 +789,22 @@ mod tests {
         assert_eq!(Action::Claim.as_str(), "claim");
         assert_eq!(Action::Update.as_str(), "update");
         assert_eq!(Action::Release.as_str(), "release");
+        assert_eq!(Action::Sale.as_str(), "sale");
+        assert_eq!(Action::List.as_str(), "list");
+        assert_eq!(Action::Auction.as_str(), "auction");
+        assert_eq!(Action::Delist.as_str(), "delist");
         // as_bytes must stay the byte view of as_str: the spelling is
         // load-bearing, it is hashed into zns_psi_rcm (WP §3.3) and
         // name_note_rseed.
-        for action in [Action::Claim, Action::Update, Action::Release] {
+        for action in [
+            Action::Claim,
+            Action::Update,
+            Action::Release,
+            Action::Sale,
+            Action::List,
+            Action::Auction,
+            Action::Delist,
+        ] {
             assert_eq!(action.as_str().as_bytes(), action.as_bytes());
             assert_eq!(Action::from_bytes(action.as_bytes()), Some(action));
         }
@@ -520,7 +812,15 @@ mod tests {
 
     #[test]
     fn action_round_trip() {
-        for action in [Action::Claim, Action::Update, Action::Release] {
+        for action in [
+            Action::Claim,
+            Action::Update,
+            Action::Release,
+            Action::Sale,
+            Action::List,
+            Action::Auction,
+            Action::Delist,
+        ] {
             assert_eq!(Action::from_bytes(action.as_bytes()), Some(action));
         }
         assert_eq!(Action::from_bytes(b"Claim"), None);
@@ -556,6 +856,11 @@ mod tests {
             format!("ZNS:claim:alice:{}:0:{}", UA, ZERO_HEX),
             format!("ZNS:update:alice:{}:1775000000:{}", UA, HEX),
             format!("ZNS:release:alice:{}:none:{}", UA, HEX),
+            format!("ZNS:sale:alice:{}:none:{}", UA, HEX),
+            format!("ZNS:delist:alice:{}:1775000000:{}", UA, HEX),
+            format!("ZNS:list:alice:{UA}:none:t1abc:5:{HEX}"),
+            format!("ZNS:list:alice:{UA}:none:t1abc:1.5:{HEX}"),
+            format!("ZNS:auction:alice:{UA}:none:t1abc:9:1:3000000:3001000:{HEX}"),
         ];
         for text in &texts {
             let m = Memo::from_bytes(text.as_bytes()).unwrap();
@@ -626,6 +931,102 @@ mod tests {
         assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidName));
         let m = memo(&format!("ZNS:claim:alice:{}:01:{}", UA, ZERO_HEX));
         assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidExpiry));
+        let m = memo(&format!("ZNS:list:alice:{UA}:none:t1abc:{HEX}"));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::FieldCount));
+        let m = memo(&format!("ZNS:list:alice:{UA}:none:t1abc:5:5:{HEX}"));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::FieldCount));
+        let m = memo(&format!(
+            "ZNS:auction:alice:{UA}:none:t1abc:9:1:3000000:{HEX}"
+        ));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::FieldCount));
+        let m = memo(&format!("ZNS:delist:alice:{UA}:none:t1abc:5:{HEX}"));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::FieldCount));
+        let m = memo(&format!("ZNS:update:alice:{UA}:none:t1abc:5:{HEX}"));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::FieldCount));
+        let m = memo(&format!(
+            "ZNS:auction:alice:{UA}:none:t1abc:1:9:3000000:3001000:{HEX}"
+        ));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidTerms));
+        let m = memo(&format!(
+            "ZNS:auction:alice:{UA}:none:t1abc:9:9:3000000:3001000:{HEX}"
+        ));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidTerms));
+        let m = memo(&format!(
+            "ZNS:auction:alice:{UA}:none:t1abc:9:1:3001000:3000000:{HEX}"
+        ));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidTerms));
+        let m = memo(&format!("ZNS:list:alice:{UA}:none::5:{HEX}"));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidTerms));
+        let m = memo(&format!("ZNS:list:alice:{UA}:none:t1abc:01:{HEX}"));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidTerms));
+        let m = memo(&format!("ZNS:list:alice:{UA}:none:t1abc:5.:{HEX}"));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidTerms));
+        let m = memo(&format!(
+            "ZNS:auction:alice:{UA}:none:t1abc:9.:1:3000000:3001000:{HEX}"
+        ));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidTerms));
+        let m = memo(&format!(
+            "ZNS:auction:alice:{UA}:none:t1abc:9:1:01:3001000:{HEX}"
+        ));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidTerms));
+        let m = memo(&format!("ZNS:sale:alice:{UA}:none:{ZERO_HEX}"));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidPrevRcm));
+        let m = memo(&format!("ZNS:delist:alice:{UA}:none:{ZERO_HEX}"));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidPrevRcm));
+    }
+
+    #[test]
+    fn listing_terms_change_the_rseed() {
+        let cheap_memo = memo(&format!("ZNS:list:alice:{UA}:none:t1abc:5:{HEX}"));
+        let dear_memo = memo(&format!("ZNS:list:alice:{UA}:none:t1abc:6:{HEX}"));
+        let cheap = NameNote::parse(&cheap_memo).unwrap();
+        let dear = NameNote::parse(&dear_memo).unwrap();
+        assert_ne!(rseed_of(&cheap), rseed_of(&dear));
+        assert_eq!(cheap.term_count(), 2);
+        assert_eq!(dear.terms()[1], b"6");
+    }
+
+    #[test]
+    fn encode_refuses_terms_parse_rejects() {
+        let name = Name::parse("alice").unwrap();
+        let ua = Ua::parse(UA).unwrap();
+        let prev_rcm = PrevRcm::from_hex(HEX).unwrap();
+        let list = NameNote::List {
+            name,
+            ua,
+            expires_at: Expiry::NEVER,
+            pay_to: "t1abc",
+            price: "-1",
+            prev_rcm,
+        };
+        assert_eq!(list.encode(), Err(MemoError::InvalidTerms));
+        let auction = NameNote::Auction {
+            name,
+            ua,
+            expires_at: Expiry::NEVER,
+            pay_to: "t1abc",
+            start_price: "1",
+            min_price: "9",
+            start: "3000000",
+            end: "3001000",
+            prev_rcm,
+        };
+        assert_eq!(auction.encode(), Err(MemoError::InvalidTerms));
+    }
+
+    fn rseed_of(note: &NameNote<'_>) -> [u8; 32] {
+        let terms = note.terms();
+        crate::name_note_rseed(
+            note.action().as_bytes(),
+            note.name().as_str().as_bytes(),
+            note.ua().as_str().as_bytes(),
+            note.expires_at()
+                .unwrap_or(Expiry::NEVER)
+                .field_bytes()
+                .as_bytes(),
+            &terms[..note.term_count()],
+            note.prev_rcm().unwrap_or(PrevRcm::ZERO).as_bytes(),
+        )
     }
 
     #[test]
@@ -673,6 +1074,38 @@ mod tests {
         );
         assert_eq!(prev_rcm_for(None, Action::Update), None);
         assert_eq!(prev_rcm_for(None, Action::Release), None);
+        assert_eq!(prev_rcm_for(None, Action::List), None);
+        assert_eq!(prev_rcm_for(None, Action::Sale), None);
+        assert_eq!(
+            prev_rcm_for(
+                Some(&Tip {
+                    action: Action::Update,
+                    rcm: [0xab; 32]
+                }),
+                Action::List
+            ),
+            Some([0xab; 32])
+        );
+        assert_eq!(
+            prev_rcm_for(
+                Some(&Tip {
+                    action: Action::List,
+                    rcm: [0xcd; 32]
+                }),
+                Action::Sale
+            ),
+            Some([0xcd; 32])
+        );
+        assert_eq!(
+            prev_rcm_for(
+                Some(&Tip {
+                    action: Action::Release,
+                    rcm: [0xcd; 32]
+                }),
+                Action::Delist
+            ),
+            None
+        );
         assert_eq!(
             prev_rcm_for(
                 Some(&Tip {

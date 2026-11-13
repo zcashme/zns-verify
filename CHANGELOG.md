@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Sale, list, auction, and delist Name Notes. A list carries `t1:price`
+  and an auction `t1:start:min:start-block:end-block` between the expiry
+  and the predecessor. Each spends the live tip. The name stays live.
+
+### Changed
+
+- **Breaking:** `name_note_rseed` takes the listing terms. Empty terms
+  keep the claim, update, and release rseed.
+- `verify_name_note` has no opening for a list or an auction.
+  `encode` returns a memo only when `parse` accepts it.
+- A price with a trailing dot is refused. `5` and `5.0` stay.
+
 ## [0.2.1] - 2026-11-12
 
 ### Added
