@@ -3,6 +3,9 @@
 //!
 //! The note goes to a fixed Registry address (`G_D`, `PK_D`) with
 //! rho = [0x33; 32] and value = 0. The bound UA is the WP §3.5 address.
+//!
+//! The sale, list, auction and delist rseeds are the ones zns-mint's
+//! `NameNote::rseed` gives for the same records.
 
 use zns_verify::{
     name_note_rseed, note_commitment_cmx, psi_from_rseed, rcm_from_rseed, verify_bound_name_note,
@@ -19,10 +22,14 @@ struct Vector {
     action: &'static [u8],
     name: &'static [u8],
     expires_at: &'static [u8],
+    terms: &'static [&'static [u8]],
     prev: [u8; 32],
     expected_rseed_hex: &'static str,
     expected_cmx_hex: &'static str,
 }
+
+/// The t1 the list and auction vectors pay.
+const PAY_TO: &[u8] = b"t1KRqwQhktLV4BjbNLiuH6pb3AMoszZKcQB";
 
 const VECTORS: &[Vector] = &[
     Vector {
@@ -30,6 +37,7 @@ const VECTORS: &[Vector] = &[
         action: b"claim",
         name: b"alice",
         expires_at: b"none",
+        terms: &[],
         prev: [0u8; 32],
         expected_rseed_hex: "5bcb6b8f30d7f8cd75f253b738c6fb034841e31c70d137373f3b36b0c595e56d",
         expected_cmx_hex: "a8e6da4a73de6efa14c13e565a8701f210b17e4de4b067a41a41910383b9da18",
@@ -39,6 +47,7 @@ const VECTORS: &[Vector] = &[
         action: b"update",
         name: b"alice",
         expires_at: b"1893456000",
+        terms: &[],
         prev: [0xabu8; 32],
         expected_rseed_hex: "5500949ebcf01bb4e5794dfbec49aa86cd626e5ff6876a42e8c0a4bb51e06ce8",
         expected_cmx_hex: "be3ed1474405ae3aaa45618b7321f83122e394469277efdd750a5e1565ef9208",
@@ -48,9 +57,50 @@ const VECTORS: &[Vector] = &[
         action: b"release",
         name: b"alice",
         expires_at: b"none",
+        terms: &[],
         prev: [0xcdu8; 32],
         expected_rseed_hex: "a63a0403921bf6f32984d313669179688d7b2145b39e2e884be78f7e4f70b232",
         expected_cmx_hex: "61e9d4dd9d4dea44f88d5a8eff37971b9c117350ecf88d2bb17dc3fd78bede32",
+    },
+    Vector {
+        label: "list, t1 and price",
+        action: b"list",
+        name: b"alice",
+        expires_at: b"none",
+        terms: &[PAY_TO, b"1.5"],
+        prev: [0x1bu8; 32],
+        expected_rseed_hex: "28714cde41f553202e317b93f5663aac95f7370c3c9f95ea45d0bf91a1d6a4f5",
+        expected_cmx_hex: "11db7667dae5d4a431432d77a5547c33568b005c1f954b3e58dd8dd94a500616",
+    },
+    Vector {
+        label: "auction, five terms",
+        action: b"auction",
+        name: b"alice",
+        expires_at: b"1893456000",
+        terms: &[PAY_TO, b"9", b"1", b"3000000", b"3001000"],
+        prev: [0x1bu8; 32],
+        expected_rseed_hex: "8883dd40d097b898621837334e08bbfd65a1cbe4b05fbec28396a458b953774e",
+        expected_cmx_hex: "9b960b4a53a12016a24b831fb47542651024788ecc807b5cf8193282f33e510d",
+    },
+    Vector {
+        label: "sale, buyer ua",
+        action: b"sale",
+        name: b"alice",
+        expires_at: b"none",
+        terms: &[],
+        prev: [0x1bu8; 32],
+        expected_rseed_hex: "5d056a80415b632c5913dd6379ffffbd59663c545368aeade779ae5f6ada69ee",
+        expected_cmx_hex: "722c8a79a10b5f39786f316bfc8e1a2aba74960a63e1708a34d6e297c48c2610",
+    },
+    Vector {
+        label: "delist, fixed expiry",
+        action: b"delist",
+        name: b"alice",
+        expires_at: b"1893456000",
+        terms: &[],
+        prev: [0x1bu8; 32],
+        expected_rseed_hex: "f6a1999153eb3e06f7712bbaae8f90473c0247092a2bbf2b371bf5cc15c65f9a",
+        expected_cmx_hex: "d267f0de8846358574e71f31b4c845fce7a83873003bf0f993b34d2430c6130b",
     },
 ];
 
@@ -61,7 +111,7 @@ fn bytes32(hex_str: &str) -> [u8; 32] {
 #[test]
 fn rseed_vectors_match() {
     for v in VECTORS {
-        let rseed = name_note_rseed(v.action, v.name, UA, v.expires_at, &[], &v.prev);
+        let rseed = name_note_rseed(v.action, v.name, UA, v.expires_at, v.terms, &v.prev);
         assert_eq!(hex::encode(rseed), v.expected_rseed_hex, "{}", v.label);
     }
 }
