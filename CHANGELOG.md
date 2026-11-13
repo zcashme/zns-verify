@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keep the claim, update, and release rseed.
 - `verify_name_note` has no opening for a list or an auction.
   `encode` returns a memo only when `parse` accepts it.
+- A price with a trailing dot is refused. `5` and `5.0` stay.
 
 ## [0.2.1] - 2026-11-12
 

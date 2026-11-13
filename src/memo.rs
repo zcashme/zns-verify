@@ -661,10 +661,12 @@ fn valid_pay_to(text: &str) -> bool {
     !text.is_empty()
 }
 
-/// ZEC with at most eight decimal places, in zatoshis.
+/// ZEC with at most eight decimal places, in zatoshis. A dot requires
+/// at least one decimal digit.
 fn zec_zatoshis(text: &str) -> Option<u64> {
     let (whole, frac) = match text.split_once('.') {
-        Some((whole, frac)) => (whole, frac),
+        Some((whole, frac)) if !frac.is_empty() => (whole, frac),
+        Some(_) => return None,
         None => (text, ""),
     };
     if whole.is_empty()
@@ -956,6 +958,12 @@ mod tests {
         let m = memo(&format!("ZNS:list:alice:{UA}:none::5:{HEX}"));
         assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidTerms));
         let m = memo(&format!("ZNS:list:alice:{UA}:none:t1abc:01:{HEX}"));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidTerms));
+        let m = memo(&format!("ZNS:list:alice:{UA}:none:t1abc:5.:{HEX}"));
+        assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidTerms));
+        let m = memo(&format!(
+            "ZNS:auction:alice:{UA}:none:t1abc:9.:1:3000000:3001000:{HEX}"
+        ));
         assert_eq!(NameNote::parse(&m), Err(MemoError::InvalidTerms));
         let m = memo(&format!(
             "ZNS:auction:alice:{UA}:none:t1abc:9:1:01:3001000:{HEX}"
