@@ -21,7 +21,8 @@ use crate::memo::{Expiry, NameNote, PrevCmx};
 /// `cmx` (zcashme/zns-mint#480).
 ///
 /// The record gives the rseed ([`name_note_rseed`]); the rseed gives ψ and rcm
-/// as for any Ironwood note.
+/// as for any Ironwood note. The check is for an Ironwood note (lead byte
+/// `0x03`) only: an Orchard-pool note derives its rcm differently and fails it.
 ///
 /// **Consistent, not authorised.** Anyone can build a zero-value note to the
 /// published registry address whose commitment verifies. The Registry spend
