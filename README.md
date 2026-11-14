@@ -6,8 +6,8 @@ itself prove that the Mint Registry authorised a transition; see [Trust
 boundary](#trust-boundary) below.
 
 A ZcashName binding lives inside a Name Note's commitment, through the note's
-`cmx`. A Name Note is a bound note: its `rseed` is a deterministic hash of the
-record `(action, name, ua, expires_at, terms, prev)`, and its `(rcm, ψ)` follow
+`cmx`. A Name Note is a bound note: its `rseed` is a deterministic hash of its
+memo fields and its predecessor (WP §4.4), and its `(rcm, ψ)` follow
 from that `rseed` as for any Ironwood note.
 
 The zns-verify crate recomputes the commitment from
@@ -28,13 +28,13 @@ between the Mint's own accounts (treasury -> registry), which is inherently a
 cross-address transfer, so Name Notes must be in the Ironwood pool.
 
 Name Notes are public record: they are minted to the Mint's registry account,
-and the Mint's full viewing key is published (WP §6) so any resolver can
+and the Mint's full viewing key is published (WP §8.1) so any resolver can
 decrypt them. The bound user UA lives in the memo and the commitment, not in
 the note's recipient.
 
 ## Bound Name Notes
 
-A Name Note follows the bound-notes draft ZIP (zcashme/zns-mint#480):
+A Name Note is a bound note (WP §4.4):
 
 - Binding domain: `ZNS___Name_Notes`, the BLAKE2b personalization.
 - Kind: `0x01` for every Name Note. The verb is the first field.
@@ -53,9 +53,8 @@ Notes, whose `(rcm, ψ)` came straight from the record.
 
 ## What it does
 
-- `name_note_rseed(action, name, ua, expires_at, terms, prev)` -- derive a
-  Name Note's `rseed` from its record. Empty `terms` is a claim, update,
-  release, sale, or delist.
+- `name_note_rseed(fields, prev)` -- derive a Name Note's `rseed` from its
+  memo fields and its predecessor (WP §4.4). `Memo::fields` gives the fields.
 - `psi_from_rseed` / `rcm_from_rseed` -- the Ironwood derivations from an `rseed`.
 - `note_commitment_cmx(...)` -- recompute the Sinsemilla note commitment.
 - `verify_bound_name_note(...)` -- recompute and compare against `cmx`, returning
@@ -147,18 +146,18 @@ and minimal dependencies. Production crates: `blake2b_simd`, `pasta_curves`,
 ```rust
 use zns_verify::{verify_bound_name_note, ExtractedNoteCommitment, Memo, NameNote, Rho};
 
-# let g_d: [u8; 32] = hex::decode("dd0c23bc9720ff21aaab76a7b7276231ee212f156e9c318c355972628efed408").unwrap().try_into().unwrap();
-# let pk_d: [u8; 32] = hex::decode("81a5fe8f45b34630f29d0c8dd8dc1cc3573386f416cb324133156d723df5e62d").unwrap().try_into().unwrap();
+# let g_d: [u8; 32] = hex::decode("de4338f2ab9fd8300a3a1c20dd690ce27026c6001c295d7c641a067ce809b11e").unwrap().try_into().unwrap();
+# let pk_d: [u8; 32] = hex::decode("6df609f5710f3b5deecd4ee4b8f0173b44af6cf8918ac00269526031ba628996").unwrap().try_into().unwrap();
 # let rho = Rho::from_bytes(&[0x33u8; 32]).unwrap();
 # let on_chain_cmx = ExtractedNoteCommitment::from_bytes(
 #     &<[u8; 32]>::try_from(
-#         hex::decode("a8e6da4a73de6efa14c13e565a8701f210b17e4de4b067a41a41910383b9da18").unwrap(),
+#         hex::decode("617b189869560cdd3928456693c1d4060752f18173425294141641e4b05d0f1a").unwrap(),
 #     )
 #     .unwrap(),
 # )
 # .unwrap();
 
-// Name Note memo (from on chain)
+// The claim of WP §4.6, as its memo appears on chain.
 let memo = Memo::from_bytes(
     b"ZNS:claim:alice:u1897y9pzw3zk6n9twtzu2z5kpkzw3hms2c54fpyv8lnr79m73tazljkk3veaxrtwncp66lf45p3f274xy2amqckx0sraje4v835yw8q0q:none:0000000000000000000000000000000000000000000000000000000000000000",
 )?;

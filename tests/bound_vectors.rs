@@ -2,10 +2,7 @@
 //! (`name_note_rseed`) and the cmx of the Ironwood note built from it.
 //!
 //! The note goes to a fixed Registry address (`G_D`, `PK_D`) with
-//! rho = [0x33; 32] and value = 0. The bound UA is the WP §3.5 address.
-//!
-//! The sale, list, auction and delist rseeds are the ones zns-mint's
-//! `NameNote::rseed` gives for the same records.
+//! rho = [0x33; 32] and value = 0. The bound UA is the WP §4.6 address.
 
 use zns_verify::{
     name_note_rseed, note_commitment_cmx, psi_from_rseed, rcm_from_rseed, verify_bound_name_note,
@@ -111,7 +108,12 @@ fn bytes32(hex_str: &str) -> [u8; 32] {
 #[test]
 fn rseed_vectors_match() {
     for v in VECTORS {
-        let rseed = name_note_rseed(v.action, v.name, UA, v.expires_at, v.terms, &v.prev);
+        let mut fields = [v.action, v.name, UA, v.expires_at].join(&b':');
+        for term in v.terms {
+            fields.push(b':');
+            fields.extend_from_slice(term);
+        }
+        let rseed = name_note_rseed(&fields, &v.prev);
         assert_eq!(hex::encode(rseed), v.expected_rseed_hex, "{}", v.label);
     }
 }
@@ -202,16 +204,8 @@ fn commitment_of(
     pk_d: [u8; 32],
     rho: Rho,
 ) -> ExtractedNoteCommitment {
-    let terms = note.terms();
-    let prev = *note.prev().unwrap().as_bytes();
-    let rseed = name_note_rseed(
-        note.action().as_bytes(),
-        note.name().as_str().as_bytes(),
-        note.ua().as_str().as_bytes(),
-        note.expires_at().unwrap().field_bytes().as_bytes(),
-        &terms[..note.term_count()],
-        &prev,
-    );
+    let memo = note.encode().unwrap();
+    let rseed = name_note_rseed(memo.fields().unwrap(), note.prev().unwrap().as_bytes());
     let psi = psi_from_rseed(&rseed, rho);
     let rcm = rcm_from_rseed(&rseed, rho, g_d, pk_d, 0, psi);
     note_commitment_cmx(g_d, pk_d, 0, rho, psi, rcm).unwrap()

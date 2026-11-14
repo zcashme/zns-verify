@@ -13,13 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and an auction `t1:start:min:start-block:end-block` between the expiry
   and the predecessor. Each spends the live tip. The name stays live.
 - `tests/bound_vectors.rs`: rseed and cmx vectors for a list, an auction, a
-  sale and a delist. Their rseeds are the ones zns-mint derives for the same
-  records.
+  sale and a delist.
+- `tests/conformance.rs`: the claim of WP §4.6 and the listing of WP §4.7.
+- `Memo::fields`: the memo bytes between `ZNS:` and the predecessor, the
+  fields WP §4.4 hashes.
 
 ### Changed
 
-- **Breaking:** `name_note_rseed` takes the listing terms. Empty terms
-  keep the claim, update, and release rseed.
+- **Breaking:** `name_note_rseed(fields, prev)` takes the memo fields as one
+  slice, as WP §4.4 writes it. The rseed of every note is unchanged.
 - **Breaking:** the predecessor is named after the cmx it holds. `PrevRcm`
   is `PrevCmx`, `NameNote::prev_rcm` is `prev`, `prev_rcm_for` is `prev_for`,
   `Tip::rcm` is `Tip::cmx`, and `MemoError::InvalidPrevRcm` is
