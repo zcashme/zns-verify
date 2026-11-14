@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the predecessor. Each spends the live tip. The name stays live.
 - `tests/bound_vectors.rs`: rseed and cmx vectors for a list, an auction, a
   sale and a delist.
-- `tests/paper_vectors.rs`: the claim of WP §4.6 and the listing of WP §4.7.
+- `tests/conformance.rs`: the claim of WP §4.6 and the listing of WP §4.7.
 - `Memo::fields`: the memo bytes between `ZNS:` and the predecessor, the
   fields WP §4.4 hashes.
 

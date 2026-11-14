@@ -32,15 +32,13 @@ fn rho() -> Rho {
 }
 
 #[test]
-fn the_claim_of_section_4_6() {
+fn claim_commits_to_its_cmx() {
     let (g_d, pk_d) = (bytes32(G_D), bytes32(PK_D));
     let text = format!("ZNS:claim:alice:{UA}:none:{}", "0".repeat(64));
     let memo = Memo::from_bytes(text.as_bytes()).unwrap();
     let note = NameNote::parse(&memo).unwrap();
 
-    let fields = memo.fields().unwrap();
-    assert_eq!(fields.len(), 123);
-    let rseed = name_note_rseed(fields, &[0u8; 32]);
+    let rseed = name_note_rseed(memo.fields().unwrap(), &[0u8; 32]);
     assert_eq!(hex::encode(rseed), CLAIM_RSEED);
     let psi = psi_from_rseed(&rseed, rho());
     assert_eq!(hex::encode(psi.to_repr()), CLAIM_PSI);
@@ -53,15 +51,13 @@ fn the_claim_of_section_4_6() {
 }
 
 #[test]
-fn the_listing_of_section_4_7() {
+fn listing_that_spends_the_claim_commits_to_its_cmx() {
     let (g_d, pk_d) = (bytes32(G_D), bytes32(PK_D));
     let text = format!("ZNS:list:alice:{UA}:none:{PAY_TO}:1.5:{CLAIM_CMX}");
     let memo = Memo::from_bytes(text.as_bytes()).unwrap();
     let note = NameNote::parse(&memo).unwrap();
 
-    let fields = memo.fields().unwrap();
-    assert_eq!(fields.len(), 162);
-    let rseed = name_note_rseed(fields, &bytes32(CLAIM_CMX));
+    let rseed = name_note_rseed(memo.fields().unwrap(), &bytes32(CLAIM_CMX));
     assert_eq!(hex::encode(rseed), LIST_RSEED);
 
     let cmx = ExtractedNoteCommitment::from_bytes(&bytes32(LIST_CMX)).unwrap();
